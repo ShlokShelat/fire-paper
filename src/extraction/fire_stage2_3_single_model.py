@@ -29,33 +29,6 @@ Usage:
   python3 fire_stage2_3_single_model.py --selftest      # offline regression guard
 
 Key also via env: OPENAI_API_KEY
-
-────────────────────────────────────────────────────────────────────────
-v6 changes (vs v5) — correctness fixes + auditability features
-────────────────────────────────────────────────────────────────────────
-  F1  API COMPAT: gpt-5.1 (GPT-5 reasoning family) rejects `temperature`
-      and `max_tokens` on Chat Completions. The payload is now built by
-      build_payload(), which drops temperature and uses
-      max_completion_tokens for reasoning models. Hidden reasoning tokens
-      are surfaced via extract_usage().
-  F2  ACTOR/ROLE: the active-voice regex treated the token before the verb
-      as the agent, so "Father emotionally/repeatedly beat mother" flagged
-      a false ACTOR_ROLE_MISMATCH. Now only a recognised person reference
-      counts as the agent; otherwise fail open. True agent swaps still flag.
-  F3  GROUNDEDNESS: the action anchor only fired on the canonical key word
-      ("hit"), so synonym-form fabrications ("beat", "slapped") passed
-      unchecked. It now fires on any variant asserted by the event.
-  F4  CONSTRUCT: self-entailment ran NLI in the wrong direction
-      (event -> source). It now runs source -> event. Cosine is symmetric
-      so the gate is unchanged.
-  A1  Machine-readable verification_flags_structured (axis + E1..E6 mode),
-      auto-derived from verification_flags, so error-taxonomy counts come
-      straight from the output.
-  A2  build_run_manifest(): model, prompt hashes, thresholds, backend,
-      timestamp, attached to the output for reproducibility.
-  A3  atomic_write_json(): output/resume/audit written atomically.
-  Deliberately NOT added: any multi-sample / ensembling, which would
-  reintroduce the exact same-model-ablation problem the v5 rewrite fixed.
 """
 
 import json
@@ -282,7 +255,7 @@ class UnitLLMResult:
     raw_response:     str = ""
     tokens_used:      int = 0
     latency_ms:       int = 0
-    reasoning_tokens: int = 0   # F1: hidden reasoning tokens (GPT-5 family)
+    reasoning_tokens: int = 0   # hidden reasoning tokens (GPT-5 family)
 
 
 @dataclass
@@ -314,7 +287,7 @@ class ValidatedEvent:
     new_state_description:         Optional[str] = None
     stage4_passed:                 bool = True
     stage4_flags:                  list = None
-    verification_flags_structured: list = None   # A1: auto-derived below
+    verification_flags_structured: list = None   # auto-derived below
 
     def __post_init__(self):
         if self.stage4_flags is None:
@@ -324,7 +297,7 @@ class ValidatedEvent:
 
 
 # ─────────────────────────────────────────────────────────────
-# 3.  STEP 1 — GROUPER   (unchanged: model-independent)
+# 3.  STEP 1 — GROUPER   (model-independent)
 # ─────────────────────────────────────────────────────────────
 
 def extract_subsection(sentence: str) -> str:
@@ -457,7 +430,7 @@ def group_sentences(stage1_data: list, patient_id: str) -> list:
 
 
 # ─────────────────────────────────────────────────────────────
-# 4.  PROMPT  (unchanged: model-independent)
+# 4.  PROMPT  (model-independent)
 # ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """You are a clinical experience extractor for the FiRE system (Finite automata inspired Reasoning Engine), a neurosymbolic trauma assessment pipeline built on Indian clinical consultation notes from [REDACTED: clinical partner site].
@@ -745,7 +718,7 @@ def is_reasoning_model(model_name: str) -> bool:
 def build_payload(model_name, system_msg, user_msg,
                   max_output_tokens=2000, reasoning_effort=DEFAULT_REASONING_EFFORT):
     """
-    F1: build a Chat Completions payload valid for both classic chat models
+    Build a Chat Completions payload valid for both classic chat models
     and GPT-5-family reasoning models (which reject temperature/max_tokens).
     """
     payload = {
@@ -767,7 +740,7 @@ def build_payload(model_name, system_msg, user_msg,
 
 
 def extract_usage(data: dict) -> dict:
-    """F1: surface hidden reasoning tokens so accounting is honest."""
+    """Surface hidden reasoning tokens so accounting is honest."""
     usage   = data.get("usage", {}) or {}
     details = usage.get("completion_tokens_details", {}) or {}
     return {
@@ -834,7 +807,7 @@ async def call_extraction_model(
 
 
 # ─────────────────────────────────────────────────────────────
-# 6.  RESPONSE PARSER  (unchanged: operates on one response)
+# 6.  RESPONSE PARSER  (operates on one response)
 # ─────────────────────────────────────────────────────────────
 
 def parse_llm_response(raw: str, unit: ProcessingUnit) -> tuple:
@@ -1030,7 +1003,7 @@ def _load_nli_model() -> bool:
 def _nli_entailment_score(premise: str, hypothesis: str) -> float:
     """
     Entailment probability that `premise` entails `hypothesis`.
-    (F4: callers now pass premise=source, hypothesis=event.)
+    (Callers pass premise=source, hypothesis=event.)
     """
     if not _nli_available or _nli_model is None:
         return 0.0
@@ -1163,7 +1136,7 @@ def full_hallucination_check(
 ) -> list:
     """
     AXIS 4 — GROUNDEDNESS. Returns list of flag strings (empty = clean).
-    F3: the action anchor fires on ANY asserted variant, not only the
+    The action anchor fires on ANY asserted variant, not only the
     canonical key word.
     """
     flags        = []
@@ -1226,7 +1199,7 @@ _EXPERIENCE_TYPE_CUES = {
 def check_construct_correctness(extraction) -> tuple:
     """
     AXIS 1 — CONSTRUCT. Returns (passed: bool, flags: list[str], self_score).
-    F4: self-entailment is directional (source premise -> event hypothesis).
+    Self-entailment is directional (source premise -> event hypothesis).
     """
     flags = []
     exp = (extraction.experience_type or "unknown").lower()
@@ -1253,9 +1226,9 @@ def check_construct_correctness(extraction) -> tuple:
 
 def _regex_actor_check(event: str, source: str, persons_involved: list) -> tuple:
     """
-    AXIS 2 — ACTOR/ROLE (heuristic). F2: only a recognised person reference
-    counts as the parsed agent, so adverbs/qualifiers before the verb no
-    longer false-flag. Fails open on ambiguity. Checks source_sentence only.
+    AXIS 2 — ACTOR/ROLE (heuristic). Only a recognised person reference
+    counts as the parsed agent, so adverbs/qualifiers before the verb
+    don't false-flag. Fails open on ambiguity. Checks source_sentence only.
     """
     if not persons_involved or len(persons_involved) < 2:
         return True, []
@@ -1368,7 +1341,7 @@ def check_age_window(extraction, unit: ProcessingUnit) -> tuple:
     return True, []
 
 
-# ── A1: machine-readable flags → E1..E6 taxonomy ──────────────────────
+# ── machine-readable flags → E1..E6 taxonomy ──────────────────────
 _FLAG_TO_MODE = {
     "CONSTRUCT_NOT_ENTAILED":       ("construct",    "E1"),
     "CONSTRUCT_CUE_WEAK":           ("construct",    "E1"),
@@ -1500,7 +1473,7 @@ def verify_unit(unit: ProcessingUnit, result: UnitLLMResult) -> list:
 
 
 # ─────────────────────────────────────────────────────────────
-# 8A.  REPRODUCIBILITY MANIFEST + ATOMIC WRITE  (A2, A3)
+# 8A.  REPRODUCIBILITY MANIFEST + ATOMIC WRITE
 # ─────────────────────────────────────────────────────────────
 
 def _sha(s: str) -> str:
@@ -1637,7 +1610,7 @@ async def run_pipeline(
     n_passing    = sum(final_counts.get(k, 0) for k in ["CONFIRMED", "TENTATIVE", "REVIEW_REQUIRED"])
     n_review     = sum(1 for v in all_validated if v.human_review_required)
 
-    # A1: error-mode tally straight from structured flags
+    # error-mode tally straight from structured flags
     mode_counts = Counter()
     for v in all_validated:
         for sf in v.verification_flags_structured:
@@ -1691,7 +1664,7 @@ def dry_run(units: list, n: int = 5) -> None:
 
 
 # ─────────────────────────────────────────────────────────────
-# 10A.  OFFLINE SELF-TEST  (regression guard for F1/F2/F3)
+# 10A.  OFFLINE SELF-TEST
 # ─────────────────────────────────────────────────────────────
 
 def selftest() -> bool:
@@ -1704,30 +1677,30 @@ def selftest() -> bool:
 
     p, _ = _regex_actor_check("Father emotionally beat mother",
                               "Father emotionally beat mother", ["Father", "Mother"])
-    check(p, "F2 actor: adverb before verb does not false-flag")
+    check(p, "actor: adverb before verb does not false-flag")
     p, _ = _regex_actor_check("Father repeatedly beat mother",
                               "Father repeatedly beat mother", ["Father", "Mother"])
-    check(p, "F2 actor: 'repeatedly' before verb does not false-flag")
+    check(p, "actor: 'repeatedly' before verb does not false-flag")
     p, f = _regex_actor_check("Father beat mother",
                               "Mother beat the children", ["Father", "Mother"])
-    check((not p) and f, "F2 actor: genuine agent swap still flagged")
+    check((not p) and f, "actor: genuine agent swap still flagged")
 
     check(full_hallucination_check("Father beat mother", "Father and mother were present.", []),
-          "F3 grounded: unanchored synonym 'beat' now flags")
+          "grounded: unanchored synonym 'beat' now flags")
     check(full_hallucination_check("Father slapped mother", "Father and mother were present.", []),
-          "F3 grounded: unanchored synonym 'slapped' now flags")
+          "grounded: unanchored synonym 'slapped' now flags")
     check(not full_hallucination_check("Father beat mother", "Father struck mother.", []),
-          "F3 grounded: synonym anchored in source passes")
+          "grounded: synonym anchored in source passes")
 
     rp = build_payload("gpt-5.1", "sys", "usr")
     check("temperature" not in rp and "max_completion_tokens" in rp,
-          "F1 payload: gpt-5.1 drops temperature, uses max_completion_tokens")
+          "payload: gpt-5.1 drops temperature, uses max_completion_tokens")
     cp = build_payload("gpt-4.1", "sys", "usr")
     check("temperature" in cp and "max_tokens" in cp,
-          "F1 payload: classic model keeps temperature + max_tokens")
+          "payload: classic model keeps temperature + max_tokens")
 
     check(structure_flags(["ACTOR_ROLE_MISMATCH: x"])[0]["error_mode"] == "E3",
-          "A1 flags: structured flag maps to error mode")
+          "flags: structured flag maps to error mode")
 
     print("\nSELF-TEST:", "ALL PASS" if ok else "FAILURES PRESENT")
     return ok
@@ -1828,7 +1801,7 @@ def main():
         "pipeline_stage":       "worker1_stage2_3_single_model",
         "model":                MODEL_NAME,
         "verification_method":  "four_axis_deterministic",
-        "manifest":             build_run_manifest(),   # A2
+        "manifest":             build_run_manifest(),
         "statistics":           stats,
         "events":               [asdict(v) for v in validated],
         "new_state_candidates": new_state_candidates,
@@ -1836,15 +1809,15 @@ def main():
 
     try:
         processed_ids = list({e["unit_id"] for e in output_data["events"]})
-        atomic_write_json(resume_path, processed_ids)   # A3
+        atomic_write_json(resume_path, processed_ids)
     except Exception as e:
         logging.warning(f"Could not save resume file: {e}")
 
-    atomic_write_json(args.output, output_data)          # A3
+    atomic_write_json(args.output, output_data)
     print(f"\n[SAVE] Validated events → {args.output}")
 
     audit_path = args.output.replace(".json", "_audit.json")
-    atomic_write_json(audit_path, audit_log)             # A3
+    atomic_write_json(audit_path, audit_log)
     print(f"[SAVE] Audit log        → {audit_path}")
 
     if new_state_candidates:

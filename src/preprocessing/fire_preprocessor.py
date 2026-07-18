@@ -1,17 +1,9 @@
 """
-FiRE Pipeline — Preprocessor v2
+FiRE Pipeline — Preprocessor
 =================================
 Converts raw [REDACTED: clinical partner site] digitized consultation notes into a
 normalized flat format where every line is self-contained and
 carries its full context as a prefix.
-
-v2 FIXES over v1:
-  Fix 1: Blank lines reset narrative-level context but preserve subsection context
-  Fix 2: Two-level label stack — subsection is outer, KEY_NARRATIVE is inner
-          When inner context expires, subsection context resumes as fallback
-  Fix 3: STRUCTURAL words only reset narrative-level context, not subsection context
-  Fix 4: Inner KEY_NARRATIVE prefixes compose with subsection: "Section: Key: value"
-  Fix 5: Birth is a timeline age marker, not a structural word
 
 Design principles:
   - Zero hallucination: only moves and prefixes existing text

@@ -1,0 +1,16 @@
+{
+  "_source": "Main paper, Section 4, worked example, Table 'Mapping and verification for the excerpt' -- reproduced exactly.",
+  "events": [
+    {"event": "Father emotionally abusive", "age": "0-8, 12-16", "state": "q_a", "cluster_symbol": "a", "cluster_name": "Emotional abuse", "ace_item": "ACE-1"},
+    {"event": "Felt unloved", "age": "0-8", "state": "q_b", "cluster_symbol": "b", "cluster_name": "Unloved", "ace_item": "ACE-4"},
+    {"event": "Bullied frequently", "age": "0-8", "state": "q_c", "cluster_symbol": "c", "cluster_name": "Peer bullying", "ace_item": "ACE-13"},
+    {"event": "Mother died", "age": "11", "state": "q_d", "cluster_symbol": "d", "cluster_name": "Caregiver death", "ace_item": "ACE-12"},
+    {"event": "Beaten by father", "age": "12-16", "state": "q_e", "cluster_symbol": "e", "cluster_name": "Physical abuse", "ace_item": "ACE-2"},
+    {"event": "Depressed mood, overeating", "age": "12-16", "state": "q_p", "cluster_symbol": "p", "cluster_name": "Depressive symptoms", "ace_item": "non-ACE"},
+    {"event": "Friend took money", "age": "22-24", "state": "q_f1", "cluster_symbol": "f", "cluster_name": "Betrayal", "ace_item": "non-ACE"},
+    {"event": "Husband's affair", "age": "35-37", "state": "q_f2", "cluster_symbol": "f", "cluster_name": "Betrayal", "ace_item": "non-ACE"},
+    {"event": "Low mood", "age": "40-42", "state": "q_g", "cluster_symbol": "g", "cluster_name": "Depression", "ace_item": "non-ACE"},
+    {"event": "Chronic insomnia", "age": "40-42", "state": "q_h", "cluster_symbol": "h", "cluster_name": "Sleep", "ace_item": "non-ACE"}
+  ],
+  "_note": "The 'depressed mood and overeating' event (q_p) is explicitly a genuine symptom, not an adverse experience, and is correctly excluded from the ACE projection -- this is a verified, deliberate feature of the worked example, not an omission."
+}

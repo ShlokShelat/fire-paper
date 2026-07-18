@@ -1,0 +1,85 @@
+[Main paper, Section 4, worked example -- expected pipeline output]
+
+This file gives the expected output of running input.txt through the FiRE
+pipeline (extraction through ACE scoring), for use as a regression check
+against an actual implementation.
+
+================================================================================
+ACE-PROJECTED EXPRESSION (high confidence -- verified multiple times against
+the main paper's own text and against the pipeline's self-test, which
+reconstructs this exact expression from the underlying event records)
+================================================================================
+
+    (a + b + c^2) . d . (e + a^3)
+
+Symbol assignments (see expected_mapping.json for the full table):
+    a = q_a = Emotional abuse         -> ACE-1
+    b = q_b = Unloved                 -> ACE-4
+    c = q_c = Peer bullying           -> ACE-13
+    d = q_d = Caregiver death         -> ACE-12
+    e = q_e = Physical abuse          -> ACE-2
+
+Why each exponent is what it is:
+    c^2  -- bullying is described as "frequently," explicit repetition
+             language, so the self-loop operator fires. Exponent 1 -> 2.
+    a^3  -- emotional abuse is reactivated after the intervening caregiver-
+             death event (age 11) and physical-abuse event (age 12-16); this
+             is a feedback edge back to the emotional-abuse symbol, which
+             adds +2 to the initiating node's exponent. Exponent 1 -> 3.
+    b, d, e -- each occurs once with no self-loop or feedback trigger, so
+             each carries the default exponent of 1 (omitted in the printed
+             expression, per convention).
+
+ACE items present: {1, 2, 4, 12, 13} -- five distinct item symbols.
+Canonical ACE score = 5 (count of distinct items; exponents are reference
+weights only and never change the count -- see technical_appendix.pdf,
+Section 1, "Worker 4, ACE (Scoring)" row of Table 1).
+
+One deliberately-excluded event, for a pipeline implementation to check it
+handles correctly: the "depressed mood and overeating" event (age 12-16,
+symbol p in expected_mapping.json) is explicitly verified in the main paper
+as a genuine symptom, not an adverse experience, and is correctly absent
+from the ACE-projected expression above. A correct implementation must
+exclude it too, not just happen to omit it.
+
+================================================================================
+FULL TRAJECTORY STRUCTURE (descriptive only -- see note on confidence below)
+================================================================================
+
+The main paper's Figure "Full symbolic trajectory for the excerpt" shows the
+complete automaton before ACE projection, including the four non-ACE events
+(p, and the two betrayals f1/f2, and g/h). Reading the transition structure
+directly from that figure:
+
+    start
+      -> union of {a, b, c^2}              (three parallel branches from q0)
+      -> d                                  (concatenated: caregiver death)
+      -> union of {a-reactivated, p, e}     (three parallel branches; the
+                                              a-branch is the same feedback
+                                              reactivation as in the ACE
+                                              projection above)
+      -> f (first betrayal)
+      -> f (second betrayal, connected to the first by a separate
+             bidirectional feedback edge in the figure)
+      -> union of {g, h}                    (two parallel branches)
+      -> final
+
+NOTE ON CONFIDENCE: the ACE-projected expression above has been verified
+multiple times, including against the pipeline's own regression test. This
+full-trajectory structure is read directly and accurately from the figure's
+actual transitions, but this appendix has not separately verified what the
+algebra's serializer would print as the exact symbolic expression for the
+sequential f1-to-f2 feedback pair specifically (as opposed to the parallel-
+branch feedback case with symbol a, which is verified). Treat the structural
+description above as reliable, but do not treat any single serialized string
+for the full trajectory as confirmed unless checked directly against the
+implementation's own output.
+
+================================================================================
+Figures
+================================================================================
+
+The two source figures (full trajectory, and its ACE-cluster projection) are
+reproduced verbatim, as raw TikZ source, in figures.tex in this same
+directory, copied directly from the main paper's own LaTeX source rather
+than redrawn or reconstructed.

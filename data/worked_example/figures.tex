@@ -1,0 +1,109 @@
+% [Main paper, Section 4, worked example -- both TikZ figures, reproduced
+% verbatim from the main paper's LaTeX source. Requires the tikz package.]
+
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, font=\small,
+   ss/.style={circle,draw,fill=green!30,minimum size=6.5mm,inner sep=0pt},
+   st/.style={circle,draw,fill=yellow!45,minimum size=6.5mm,inner sep=0pt},
+   eps/.style={circle,draw,fill=black!8,minimum size=4.5mm,inner sep=0pt},
+   fin/.style={circle,draw,double,fill=red!35,minimum size=6.5mm,inner sep=0pt},
+   fb/.style={->,red,dashed,thick},
+   tr/.style={->}]
+ \node[ss]  (q0)  at (0,0)     {$q_0$};
+ \node[st]  (qa)  at (1.7,1.1) {$q_a$};
+ \node[st]  (qb)  at (1.7,0)   {$q_b$};
+ \node[st]  (qc)  at (1.7,-1.1){$q_c$};
+ \node[eps] (e1)  at (3.3,0)   {$\varepsilon$};
+ \node[st]  (qd)  at (4.5,0)   {$q_d$};
+ \node[eps] (e2)  at (5.9,0)   {$\varepsilon$};
+ \node[st]  (qa2) at (7.6,1.15) {$q_{a'}$};
+ \node[st]  (qp)  at (7.6,0)   {$q_p$};
+ \node[st]  (qe)  at (7.6,-1.15){$q_e$};
+ \node[eps] (e3)  at (9.4,0)   {$\varepsilon$};
+ \node[st]  (qf1) at (10.7,0)  {$q_{f_1}$};
+ \node[eps] (e4)  at (12.0,0)  {$\varepsilon$};
+ \node[st]  (qf2) at (13.3,0)  {$q_{f_2}$};
+ \node[eps] (e5)  at (14.6,0)  {$\varepsilon$};
+ \node[st]  (qg)  at (16.1,1.1){$q_g$};
+ \node[st]  (qh)  at (16.1,-1.1){$q_h$};
+ \node[eps] (e6)  at (17.7,0)  {$\varepsilon$};
+ \node[fin] (qF)  at (19,0)    {$q_f$};
+ \draw[tr] (q0) -- node[above,sloped]{$a$} (qa);
+ \draw[tr] (q0) -- node[above]{$b$} (qb);
+ \draw[tr] (q0) -- node[below,sloped]{$c$} (qc);
+ \draw[tr] (qa) -- node[above,sloped]{$\varepsilon$} (e1);
+ \draw[tr] (qb) -- node[above]{$\varepsilon$} (e1);
+ \draw[tr] (qc) -- node[below,sloped]{$\varepsilon$} (e1);
+ \draw[tr] (e1) -- node[above]{$d$} (qd);
+ \draw[tr] (qd) -- node[above]{$\varepsilon$} (e2);
+ \draw[tr] (e2) -- node[above,sloped]{$a$} (qa2);
+ \draw[tr] (e2) -- node[above,pos=0.35]{$p$} (qp);
+ \draw[tr] (e2) -- node[below,sloped]{$e$} (qe);
+ \draw[tr] (qa2) -- node[above,sloped]{$\varepsilon$} (e3);
+ \draw[tr] (qp) -- node[above,pos=0.65]{$\varepsilon$} (e3);
+ \draw[tr] (qe) -- node[below,sloped]{$\varepsilon$} (e3);
+ \draw[tr] (e3) -- node[above]{$f$} (qf1);
+ \draw[tr] (qf1) -- node[above]{$\varepsilon$} (e4);
+ \draw[tr] (e4) -- node[above]{$f$} (qf2);
+ \draw[tr] (qf2) -- node[above]{$\varepsilon$} (e5);
+ \draw[tr] (e5) -- node[above,sloped]{$g$} (qg);
+ \draw[tr] (e5) -- node[below,sloped]{$h$} (qh);
+ \draw[tr] (qg) -- node[above,sloped]{$\varepsilon$} (e6);
+ \draw[tr] (qh) -- node[below,sloped]{$\varepsilon$} (e6);
+ \draw[tr] (e6) -- node[above]{$\varepsilon$} (qF);
+ \draw[tr] (qc) to[loop below] node{$c$} (qc);
+ \draw[fb] (qa) to[bend right=10] node[above]{$a$} (qa2);
+ \draw[fb] (qa2) to[bend right=22] node[above]{$a$} (qa);
+ \draw[fb] (qf1) to[bend left=48] node[above]{$f$} (qf2);
+ \draw[fb] (qf2) to[bend left=48] node[below]{$f$} (qf1);
+\end{tikzpicture}}
+\caption{\textbf{Full symbolic trajectory for the excerpt.} Yellow states are labelled
+by their entering symbol; grey nodes mark age boundaries; red dashed edges mark
+feedback. Execution runs from $q_0$ (green) to $q_f$ (red).}
+\label{fig:fulltrajectory}
+\end{figure*}
+
+
+\begin{figure}[t]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, font=\small,
+   ss/.style={circle,draw,fill=green!30,minimum size=7mm,inner sep=0pt},
+   st/.style={circle,draw,fill=yellow!45,minimum size=7mm,inner sep=0pt},
+   eps/.style={circle,draw,fill=black!8,minimum size=5mm,inner sep=0pt},
+   fin/.style={circle,draw,double,fill=red!35,minimum size=7mm,inner sep=0pt},
+   fb/.style={->,red,dashed,thick},
+   tr/.style={->}]
+ \node[ss]  (q0)  at (0,0)    {$q_0$};
+ \node[st]  (qa)  at (2,1.1)  {$q_a$};
+ \node[st]  (qb)  at (2,0)    {$q_b$};
+ \node[st]  (qc)  at (2,-1.1) {$q_c$};
+ \node[eps] (e1)  at (4,0)    {$\varepsilon$};
+ \node[st]  (qd)  at (5.5,0)  {$q_d$};
+ \node[eps] (e2)  at (7,0)    {$\varepsilon$};
+ \node[st]  (qa2) at (8.9,1.1){$q_{a'}$};
+ \node[st]  (qe)  at (8.9,-1.1){$q_e$};
+ \node[eps] (e3)  at (10.8,0) {$\varepsilon$};
+ \node[fin] (qf)  at (12.3,0) {$q_f$};
+ \draw[tr] (q0) -- node[above,sloped]{$a$} (qa);
+ \draw[tr] (q0) -- node[above]{$b$} (qb);
+ \draw[tr] (q0) -- node[below,sloped]{$c$} (qc);
+ \draw[tr] (qa) -- node[above,sloped]{$\varepsilon$} (e1);
+ \draw[tr] (qb) -- node[above]{$\varepsilon$} (e1);
+ \draw[tr] (qc) -- node[below,sloped]{$\varepsilon$} (e1);
+ \draw[tr] (e1) -- node[above]{$d$} (qd);
+ \draw[tr] (qd) -- node[above]{$\varepsilon$} (e2);
+ \draw[tr] (e2) -- node[above,sloped]{$a$} (qa2);
+ \draw[tr] (e2) -- node[below,sloped]{$e$} (qe);
+ \draw[tr] (qe) -- node[below,sloped]{$\varepsilon$} (e3);
+ \draw[tr] (qa2) -- node[above,sloped]{$\varepsilon$} (e3);
+ \draw[tr] (e3) -- node[above]{$\varepsilon$} (qf);
+ \draw[tr] (qc) to[loop below] node{$c$} (qc);
+ \draw[fb] (qa) to[bend right=10] node[above]{$a$} (qa2);
+ \draw[fb] (qa2) to[bend right=22] node[above]{$a$} (qa);
+\end{tikzpicture}}
+\caption{\textbf{ACE subgraph.} The projection of Figure~\ref{fig:fulltrajectory} onto ACE clusters.}
+\label{fig:acesubgraph}
+\end{figure}

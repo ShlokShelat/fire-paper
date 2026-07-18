@@ -64,8 +64,9 @@ fire-paper/
 │   └── baselines/           Direct-scoring and reconciliation baseline
 │                            harnesses for the three frontier models
 ├── data/
-│   └── worked_example/      The paper's Section 4 worked example (not yet
-│                            populated; see the note in that directory)
+│   └── worked_example/      The paper's Section 4 worked example: input
+│                            excerpt, expected mapping, expected ACE
+│                            expression, and the two source figures
 ├── eval/
 │   └── reproduce_tables.py  Stub for regenerating Table 1 / Table 2
 └── prompts/

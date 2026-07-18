@@ -153,6 +153,12 @@ reproducibility.
 
 ## License
 
-See `LICENSE`. Code and prompts in this repository are intended for
-research use; the license file specifies the exact terms and flags what
-still needs updating (the copyright line) before camera-ready release.
+MIT (see `LICENSE`), a common choice for academic code releases and
+sufficient for the AAAI reproducibility checklist's requirement of "a
+license that allows free usage for research purposes." Two things to
+confirm before camera-ready release, not blocking for double-blind review:
+this is the intended license (not yet confirmed by the authors), and the
+placeholder copyright line ("The FiRE paper authors") should be replaced
+with real author names once the repository is de-anonymized. The clinical
+evaluation dataset itself is explicitly not covered by this license and is
+not included in this repository regardless; see "Data availability" above.

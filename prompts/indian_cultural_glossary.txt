@@ -1,0 +1,33 @@
+[Indian cultural context glossary]
+Source of truth: technical_appendix, Section "Extraction and Verification
+Prompts", subsection "Indian cultural context glossary". Reused identically
+at Stage 4's entity-anchoring check and throughout Worker 2's state-space
+matching. See the appendix for full detail on where and how this is applied.
+
+term                        meaning
+----                        -------
+kaka                        paternal uncle (father's brother)
+mama                        maternal uncle (mother's brother)
+chacha                      paternal uncle
+maasi                       maternal aunt (mother's sister)
+bua                         paternal aunt (father's sister)
+nani                        maternal grandmother
+dadi                        paternal grandmother
+nana                        maternal grandfather
+dada                        paternal grandfather
+kanyadaan                   ritual of father giving daughter at wedding;
+                             paternal absence at kanyadaan is clinically
+                             significant
+joint family                multi-generational household with shared
+                             authority, limited individual autonomy,
+                             collective decision-making
+came home in a bad state    in Indian clinical notes, frequently implies
+                             intoxication or aggressive behaviour
+boarding school              in Indian family context, often experienced as
+                             abandonment or ejection from family
+mil                         mother-in-law
+fil                         father-in-law
+sil                         sister-in-law or brother-in-law
+pind                        ancestral village
+izzat                       family honour/reputation; threat to izzat is a
+                             major stressor in Indian families

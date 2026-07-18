@@ -1,0 +1,184 @@
+[Baseline direct-scoring and reconciliation prompts]
+Source of truth: technical_appendix.pdf, Section 'Baseline Prompting Details'.
+Extracted and converted from the appendix's verified LaTeX source.
+
+## Baseline Prompting Details ##
+
+This section gives the actual prompts used by the three frontier-model baselines
+(see technical_appendix for detail) in both evaluation conditions: direct scoring from notes
+alone, and reconciliation against the patient's self-filled form. Both conditions
+share the same sixteen ACE items reproduced verbatim in this technical appendix (Section 2),
+so that section is not repeated here.
+
+## Direct scoring prompt ##
+
+The system prompt is deliberately minimal, carrying no scoring rules or judgement
+guidance beyond identifying the task:
+
+----BEGIN PROMPT----
+
+You are a clinical expert in mental health and childhood trauma, scoring the
+Adverse Childhood Experiences (ACE) questionnaire from a patient's consultation
+notes.
+
+----END PROMPT----
+
+The user message is built from the sixteen ACE items (see technical_appendix for detail) plus
+the notes themselves, with an explicit output schema:
+
+----BEGIN PROMPT----
+
+These are the 16 ACE questions:
+
+[the sixteen items, one per line, as "ACE-N: question text"]
+
+Based on the consultation notes below, decide for each question whether it is
+present, and give the total ACE score (the number of present items, 0 to 16).
+
+For each item include:
+
+- source_sentence: verbatim quote from the notes supporting the decision, or null
+if absent
+
+- reasoning: brief explanation of why the item is present or absent
+
+- confidence: `high' (explicit evidence), `medium' (inferred), or `low' (ambiguous
+or absent)
+
+Respond with JSON only, in this shape:
+
+{
+
+ "items": {
+
+ "1": {
+
+ "present": true,
+
+ "source_sentence": "exact verbatim quote from the notes that supports
+this decision, or null if absent",
+
+ "reasoning": "one or two sentences explaining why the quote maps to
+this ACE item, or why it is absent",
+
+ "confidence": "high |\ medium |\ low"
+
+ },
+
+ ... one entry per item, 1 to 16 ...
+
+ },
+
+ "ace_score": \(<\)integer 0-16\(>\)
+
+}
+
+=== CONSULTATION NOTES ===
+
+[the patient's consultation notes, verbatim]
+
+=== END NOTES ===
+
+----END PROMPT----
+
+## Reconciliation prompt ##
+
+In the reconciliation condition, the system prompt establishes that the model has
+both sources:
+
+----BEGIN PROMPT----
+
+You are a clinical expert in mental health and childhood trauma. A patient has
+filled in their own Adverse Childhood Experiences (ACE) questionnaire, and you also
+have the clinician's consultation notes for the same patient.
+
+----END PROMPT----
+
+The user message presents the patient's own answers alongside the notes, and asks
+for a revision, not a fresh score, with instructions deliberately symmetric about
+the direction of any change:
+
+----BEGIN PROMPT----
+
+Below is the patient's OWN self-filled ACE questionnaire - each item scored 0
+(no) or 1 (yes) by the patient - followed by the clinician's consultation notes
+for the same patient.
+
+Your task: starting from the patient's own answers, REVISE the questionnaire using
+the consultation notes. Change an item's answer ONLY when the notes give evidence
+for a different answer. Note that the consultation notes may not cover every item
+- they are not guaranteed to mention everything the patient reported.
+
+For every item, give your final value (present = true for 1, false for 0) with a
+supporting source quote, reasoning, and confidence. For any item whose answer you
+changed from the patient's, also give the reason for the change.
+
+PATIENT'S SELF-FILLED ACE FORM (item - question - patient's answer):
+
+[the sixteen items, each followed by "patient's answer: 0" or "patient's
+answer: 1"]
+
+Respond with JSON only, in this shape:
+
+{
+
+ "items": {
+
+ "1": {
+
+ "present": true,
+
+ "source_sentence": "verbatim quote from the notes supporting your
+final value, or null",
+
+ "reasoning": "one or two sentences explaining your final value for
+this item",
+
+ "confidence": "high |\ medium |\ low",
+
+ "revision_reason": "if you changed the patient's answer, what in the
+notes justifies the change; otherwise null"
+
+ },
+
+ ... one entry per item, 1 to 16 ...
+
+ },
+
+ "ace_score": \(<\)integer 0-16\(>\)
+
+}
+
+=== CONSULTATION NOTES ===
+
+[the patient's consultation notes, verbatim]
+
+=== END NOTES ===
+
+----END PROMPT----
+
+The revision reason field is what makes the unjustified-changes diagnostic in
+Table~ possible: the harness never trusts a model's own
+account of what it changed; it independently compares the model's final value
+against the self-report value the harness itself loaded from the patient's form,
+and flags any changed item whose revision_reason came back empty as a
+change made without stated justification, the direct, executable form of the
+paper's reconciliation-instability error mode (E6).
+
+## What is deliberately not in either prompt ##
+
+Neither prompt, nor the schema each requests, contains any instruction restricting
+the model to the 0-18 age window that the ACE instrument itself concerns; the only
+signal that these are childhood-scoped questions is the word "child" inside each
+item's own text (see technical_appendix for detail). This is a deliberate omission, stated
+directly in the baseline scripts' own documentation, not an oversight: adding an
+explicit age-window instruction would hand the unconstrained baseline a piece of
+FiRE's own symbolic machinery (the age-window verification axis of
+), which the main paper's error taxonomy treats as exactly the
+discipline an unconstrained model lacks, naming age-window violation as error mode
+E5 for precisely this reason. Silently adding the constraint here would make the
+baseline artificially stronger on the one axis it is being measured against; if a
+windowed baseline variant is wanted for some other purpose, the scripts' own
+documentation is explicit that it should be a separate, clearly-named mode, not a
+silent change to what "the baseline" means throughout the paper.
+

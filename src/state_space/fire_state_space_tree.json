@@ -1,0 +1,26 @@
+{
+  "_note": "This is a schema placeholder, not the actual shared state space built from development data. The real file's domains/clusters/states content is not reproduced here.",
+  "_schema_documented_at": "technical_appendix.pdf, Section 3.1 (Structure)",
+  "domains": {
+    "example_domain_key": {
+      "domain_name": "string",
+      "domain_definition": "string",
+      "clusters": {
+        "example_cluster_key": {
+          "cluster_name": "string",
+          "cluster_definition": "string",
+          "states": [
+            {
+              "code": "string",
+              "name": "string",
+              "description": "string",
+              "lifecycle_tier": "string",
+              "experience_type": "string",
+              "state_status": "provisional | permanent"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

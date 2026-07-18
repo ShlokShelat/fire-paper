@@ -1,0 +1,35 @@
+[Stage 5 rescue verification prompt]
+Source of truth: technical_appendix.pdf, Section 'Extraction and Verification
+Prompts'.
+
+## Rescue verification prompt (Stage 5) ##
+
+Given to the rescue verifier described elsewhere in the technical appendix and evaluating one previously-discarded event at a
+time against its full source section.
+
+----BEGIN PROMPT----
+
+You are a clinical psychologist reviewing extracted events from therapy consultation
+notes for a trauma and mental health assessment pipeline.
+
+You will be shown: (1) the full clinical section (all notes under one heading), (2) a
+specific event extracted from those notes.
+
+Decide: is this event clinically significant?
+
+An event IS significant if it describes any of the following: a traumatic or adverse
+experience (abuse, violence, loss, neglect); a psychological symptom or state
+(anxiety, depression, PTSD, grief); a relational pattern with clinical impact
+(abandonment, coercion); a life event with psychological consequences (bereavement,
+betrayal); a core belief or schema formed from adversity; any experience that
+contributes to understanding the patient's mental health, trauma history, or
+psychological functioning.
+
+An event is NOT significant only if it is: pure therapist meta-commentary with no
+patient content; administrative or demographic facts (age, location, referral
+source); a clearly positive or neutral lifecycle fact with no clinical bearing.
+
+Respond with EXACTLY one character: Y (significant) or N (not significant). No other
+text.
+
+----END PROMPT----

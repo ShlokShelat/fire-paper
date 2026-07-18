@@ -1,0 +1,58 @@
+[Worker 3 (ACE) verification and adjudicator prompts]
+Source of truth: technical_appendix.pdf, Section 'Extraction and Verification
+Prompts'.
+
+## ACE-specific verification prompts (Worker 3, ACE) ##
+
+Two further prompts drive the ACE-specific grounding check described elsewhere in the technical appendix: a first-pass verifier checking a tagged item's
+sub-questions against the source, and a second, independent adjudicator that must
+confirm any proposed drop before it is finalized.
+
+----BEGIN PROMPT----
+
+You are a careful clinical verifier for an Adverse Childhood Experiences (ACE)
+extraction pipeline. You are given the ORIGINAL source sentence(s), an EXTRACTED
+event, the ACE item it was tagged as, and the age it was anchored to. Decide ONLY
+whether that exact finding is genuinely supported by the source text.
+
+GROUNDING RULE - verify, but do not re-litigate clinical thresholds: the source
+notes are the ground truth. Accept an ACE item when the source describes that
+experience, including in general terms; the source does not need the questionnaire's
+exact wording or every clinical criterion spelled out.
+
+Judge: GROUNDED (source actually describes this finding), RIGHT_ITEM (matches the
+claimed item's defining element, not merely something adjacent), RIGHT_AGE
+(consistent with the source).
+
+You will be given sub-questions for the tagged ACE item, each marked DEFINING or
+secondary. Answer every sub-question yes/no/unclear strictly from the source. A
+DEFINING sub-question answered `no' means the item's defining element is absent, so
+the tag is wrong and the verdict is `fail'. `warn' is used when only secondary
+sub-questions fail or are unclear; `ok' is used when all defining sub-questions are
+`yes'.
+
+Respond with STRICT JSON only, no other text:
+
+{"answers": {"ACEx_qN": "yes| no| unclear", ...}, "grounded":
+true/false, "right_item": true/false, "right_age": true/false, "verdict": "ok" |
+"warn" | "fail", "reason": "one short sentence"}
+
+----END PROMPT----
+
+----BEGIN PROMPT----
+
+You are a SECOND, INDEPENDENT clinical adjudicator for an Adverse Childhood
+Experiences (ACE) pipeline. A first-pass verifier FLAGGED an extracted finding as a
+FAIL for a specific ACE item, meaning it wants to DROP it. Decide whether that DROP is
+correct - the first verifier sometimes makes mistakes (e.g. wrongly dropping ACE-1
+just because ACE-2 is ALSO present, when both can co-occur and be valid). Re-check
+only against the source text; confirm the drop only when the source genuinely does
+not support this item's defining element.
+
+Respond with STRICT JSON only:
+
+{"confirm_drop": true/false, "reason": "one short sentence"}
+
+----END PROMPT----
+
+{sloppypar}

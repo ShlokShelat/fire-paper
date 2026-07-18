@@ -1,0 +1,16 @@
+# Dependencies confirmed from the pipeline code discussed during this
+# paper's development. Exact version pins were not established in that
+# discussion, so none are specified here; pin them once the actual source
+# is added to this repository.
+#
+# Confidence: HIGH (named explicitly in code/prompts reviewed)
+openai                  # or an OpenAI-compatible client; used for GPT-5.1 calls
+sentence-transformers   # all-MiniLM-L6-v2, used for semantic state-space matching
+                         # and Stage 4's grounding check (technical_appendix.pdf,
+                         # Section 3.2 and Section 9.2 -- CPU only, no GPU used
+                         # in the reported evaluation)
+#
+# Confidence: LIKELY (needed given the pipeline's described behavior, but
+# not confirmed by an explicit import statement in what was reviewed)
+# google-generativeai   # for Gemini 3.1 Pro baseline calls
+# anthropic-or-xai-client  # for Grok baseline calls -- exact package unconfirmed

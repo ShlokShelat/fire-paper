@@ -19,15 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
-
----
-
-NOTE: This is a suggested default license (MIT), chosen because it is
-common for academic code releases and satisfies the AAAI reproducibility
-checklist's requirement of "a license that allows free usage for research
-purposes." Confirm this is the intended license before publication; the
-"FiRE paper authors" copyright line should also be replaced with the actual
-author names once this repository is de-anonymized for camera-ready
-release. The clinical evaluation data itself is explicitly NOT covered by
-this license and is not included in this repository; see README.md,
-"Data availability."

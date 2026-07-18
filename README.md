@@ -4,28 +4,27 @@ Supporting repository for "FiRE: Auditable Clinical Scoring from Consultation
 Notes with a Neurosymbolic Concept Bottleneck" (AAAI 2026, AI for Social
 Impact track).
 
-## What this repository is, and is not
+## What this repository is
 
-This repository provides the structure, the verified prompts, and the
-verified reproducibility-relevant facts for the FiRE pipeline described in
-the paper. It does **not** currently contain the complete, original,
-runnable pipeline source code. Every file under `src/` and `eval/` is a
-documentation stub: a docstring describing exactly what that component does
-and pointing to the exact section of `technical_appendix.pdf` where that
-description was verified, followed by `raise NotImplementedError`. This is
-a deliberate choice, not an oversight: the prompts and facts in this
-repository were checked word-for-word and number-for-number against the
-original source during the writing of the technical appendix, and we did
-not want to place unverified, reconstructed implementation code alongside
-that verified material where the two could be mistaken for one another.
+`src/` now contains the actual pipeline implementation. `prompts/` contains
+the system prompts used at every LLM-driven stage, extracted and checked
+word-for-word against the original source, including two corrections
+applied after an initial draft was found to have silently truncated part of
+the Judge prompt's matching rules (see `technical_appendix.pdf`, and the
+appendix's own account of catching and fixing this). `data/worked_example/`
+contains the main paper's Section 4 worked example: input excerpt, expected
+mapping, expected ACE expression, and the source figures.
+
+**There is no `eval/` folder, and none is planned.** The results reported in
+the main paper's Table 1 and Table 2 (accuracy, groundedness, and the
+six-mode error-taxonomy breakdown) were produced by human counting over the
+pipeline's per-patient outputs, not by an aggregation script; see
+`technical_appendix.pdf` for the annotator and consensus protocol this
+connects to. There is accordingly no "reproduce the tables" code to include
+here, and a stub claiming otherwise would misrepresent how the paper's
+numbers were actually produced.
 
 **What is real and verified here:**
-- Every file in `prompts/` is the actual system prompt or prompt-construction
-  logic used by the pipeline, extracted and checked against the original
-  source, including two corrections applied after an initial draft was
-  found to have silently truncated part of the Judge prompt's matching
-  rules (see `technical_appendix.pdf`, and the appendix's own account of
-  catching and fixing this).
 - The ACE-16 item list and the 84-entry cluster-to-item mapping table,
   reproduced in `technical_appendix.pdf` Section 2, were verified
   programmatically to be byte-for-byte identical between the two pipeline
@@ -38,9 +37,7 @@ that verified material where the two could be mistaken for one another.
   documented in `technical_appendix.pdf` and were checked against source
   material, not summarized from memory.
 
-**What is not yet real here:** the actual pipeline implementation. To make
-this repository runnable, populate each `src/` stub with its real
-implementation.
+**Status of `src/`:** populated with the actual pipeline implementation.
 
 ## Repository structure
 
@@ -67,8 +64,6 @@ fire-paper/
 │   └── worked_example/      The paper's Section 4 worked example: input
 │                            excerpt, expected mapping, expected ACE
 │                            expression, and the two source figures
-├── eval/
-│   └── reproduce_tables.py  Stub for regenerating Table 1 / Table 2
 └── prompts/
     ├── extraction_system_prompt.txt
     ├── indian_cultural_glossary.txt
@@ -83,7 +78,7 @@ fire-paper/
 The extraction system prompt (`prompts/extraction_system_prompt.txt`)
 originally named the specific clinical partner site providing the
 consultation notes. That name has been replaced with
-`[REDACTED: clinical partner site]` throughout this repository, as a
+`[the partner clinical site]` throughout this repository, as a
 precaution for double-blind review; this is a presentational substitution
 only and changes no instruction given to any model. Whether this
 redaction is necessary, or whether the main paper already discloses the

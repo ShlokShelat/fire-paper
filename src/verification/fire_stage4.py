@@ -34,52 +34,6 @@ patching code:
       of the four-axis verification the paper describes.
 This file does not decide that for you — it fixes bugs and adds
 consistency features under whichever framing you pick.
-
-────────────────────────────────────────────────────────────────────────
-v2 changes (vs the version reviewed) — correctness fixes + features
-────────────────────────────────────────────────────────────────────────
-  F5  HEADER STRIPPING: the subsection-match branch used a much looser
-      "is this a header?" heuristic (needs only ONE leading capital
-      letter, e.g. any ordinary sentence) than the no-subsection
-      fallback branch (needs >=2 capital letters). This caused
-      ordinary sentence content like "Client believes: I am not
-      enough" or "Husband said: I don't care anymore" to be
-      mis-detected as a second header and silently stripped down to
-      just the trailing clause before the semantic-grounding cosine
-      check ran — verified: "Core Beliefs: Client believes: I am not
-      enough" -> stripped to "I am not enough", losing "Client
-      believes". That shrinks/decontextualizes what the event is
-      compared against and can trigger spurious SEMANTIC_NOT_GROUNDED
-      downgrades on perfectly grounded events. Fixed by aligning the
-      subsection-branch heuristic to the same >=2-capital-letter rule
-      the fallback branch already uses.
-  F6  BROKEN LOGGING CALL: `logging.warning(msg, e2)` passed a stray
-      positional arg to a message with no %s placeholder. Verified
-      this raises inside logging's own formatter (caught internally,
-      so it doesn't crash the run, but it prints "--- Logging error
-      ---" to stderr and the actual message/exception reason is never
-      shown) — i.e. the one moment you most need to know why the
-      semantic backend fell back to containment, the log is silently
-      broken. Fixed with correct %s formatting.
-  F7  FAIL-OPEN ON ENCODER EXCEPTION: `_cosine_sim` caught any
-      exception and returned 1.0 ("perfect match"), so an encoder
-      failure mid-run (not "nothing to compare", an actual runtime
-      error) would silently mark every subsequent CONFIRMED event as
-      cleanly grounded instead of flagging it. For a module whose job
-      is catching hallucinations, an internal failure should fail
-      toward caution, not toward false confidence. Fixed: on a genuine
-      encode exception, the semantic check is skipped for that item
-      (returns None, same as "nothing to check") and the exception is
-      logged at ERROR level so it is visible, rather than silently
-      asserting groundedness.
-  A4  Machine-readable flags: stage4_flags_structured, using the same
-      axis/error-mode vocabulary as Worker 1 Stage 3, so E1-E6 tallies
-      can be computed across BOTH verification passes together.
-  A5  Atomic output write (matches the Stage 2/3 pipeline convention),
-      so an interrupted Stage 4 run can't leave a corrupt output file.
-  Everything else (grouping logic, person-anchor tables, temporal
-  signal tables, scoring/deduction logic) is unchanged from the
-  reviewed version.
 """
 
 import argparse
@@ -142,7 +96,7 @@ _HEADER_SIGNAL_WORDS = {
 
 def _looks_like_header(before_text: str, max_len: int) -> bool:
     """
-    F5: shared, single definition of "does this look like a section header
+    Shared, single definition of "does this look like a section header
     rather than the start of an ordinary sentence?" — used by BOTH the
     subsection-match branch and the no-subsection fallback branch, so they
     no longer disagree. Requires either an em/en dash, a known header
@@ -252,7 +206,6 @@ def _load_sim_model() -> str:
         return _sim_backend
     except Exception as e2:
         _sim_backend = "containment"
-        # F6: correct %-style formatting so the actual reason is visible.
         logging.warning(
             "Stage 4: sentence-transformers UNAVAILABLE (%s). Fallback to containment.",
             e2,
@@ -262,7 +215,7 @@ def _load_sim_model() -> str:
 
 def _cosine_sim(text_a: str, text_b: str) -> Optional[float]:
     """
-    F7: on a genuine encode failure, return None (skip this check) rather
+    On a genuine encode failure, return None (skip this check) rather
     than 1.0 (silently claim perfect groundedness). None is treated by the
     caller as "could not verify" and does not downgrade the event, but the
     failure is now visible in the logs at ERROR level instead of being
@@ -310,7 +263,7 @@ def _check_semantic_grounding(
     if backend == "transformers":
         score = _cosine_sim(source_clean, event)
         if score is None:
-            # F7: encoder failed for this item — cannot verify, don't guess.
+            # encoder failed for this item — cannot verify, don't guess.
             return None
         if score < threshold and context.strip():
             alt = _cosine_sim(context + " " + source_clean, event)
@@ -375,8 +328,7 @@ INCOMPATIBLE_STAGE_PAIRS = {
 }
 
 # Single definition of "adjacent stages", reused by both the age-based check
-# and the keyword-based check below (previously duplicated inline in two
-# places with the risk of the two copies drifting apart).
+# and the keyword-based check below.
 _ADJACENT_STAGE_PAIRS = {
     ("childhood", "teenage"), ("teenage", "childhood"),
     ("teenage",   "adult"),    ("adult",   "teenage"),
@@ -419,7 +371,7 @@ def _life_stage_from_age(age_min: int, age_max: int) -> Optional[str]:
 MAX_CONTEXT_SENTENCES = 3
 
 
-# ── A4: machine-readable flags → same E1..E6 vocabulary as Stage 3 ────
+# ── machine-readable flags → same E1..E6 vocabulary as Stage 3 ────
 _STAGE4_FLAG_TO_MODE = {
     "ENTITY_NOT_ANCHORED":     ("groundedness", "E3"),
     "SEMANTIC_NOT_GROUNDED":   ("construct",    "E1"),
@@ -552,7 +504,7 @@ def stage4_verify(events: list, stage1_data: Optional[list] = None) -> list:
         severities                    = [f[0] for f in flags]
         flag_strs                     = [f[1] for f in flags]
         ev["stage4_flags"]            = flag_strs
-        ev["stage4_flags_structured"] = structure_stage4_flags(flag_strs)  # A4
+        ev["stage4_flags_structured"] = structure_stage4_flags(flag_strs)
         ev["stage4_passed"]           = False
         n_flagged                    += 1
 
@@ -583,7 +535,6 @@ def stage4_verify(events: list, stage1_data: Optional[list] = None) -> list:
     return events
 
 
-# ── A5: atomic output write (consistency with Stage 2/3 pipeline) ─────
 def atomic_write_json(path: str, obj) -> None:
     d = os.path.dirname(os.path.abspath(path)) or "."
     fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
@@ -599,7 +550,7 @@ def atomic_write_json(path: str, obj) -> None:
 
 
 def selftest() -> bool:
-    """Offline regression guard for F5/F6/F7."""
+    """Offline regression guard."""
     ok = True
 
     def check(cond, name):
@@ -607,24 +558,21 @@ def selftest() -> bool:
         print(f"  [{'PASS' if cond else 'FAIL'}] {name}")
         ok = ok and bool(cond)
 
-    # F5: ordinary sentence content must NOT be treated as a second header
     out = _strip_section_header("Core Beliefs: Client believes: I am not enough", "Core Beliefs")
     check("Client believes" in out,
-          "F5 header-strip: ordinary sentence content is preserved")
+          "header-strip: ordinary sentence content is preserved")
     out2 = _strip_section_header("Presenting Problems: Husband said: I don't care anymore",
                                  "Presenting Problems")
     check("Husband said" in out2,
-          "F5 header-strip: speaker attribution is preserved")
-    # legit headers should still strip correctly
+          "header-strip: speaker attribution is preserved")
     out3 = _strip_section_header("Father: Beat mother regularly during childhood years", "Father")
     check(out3 == "Beat mother regularly during childhood years",
-          "F5 header-strip: real single-word header still strips")
+          "header-strip: real single-word header still strips")
     out4 = _strip_section_header("Therapist Formulation: Suggests parentification pattern",
                                  "Therapist Formulation")
     check(out4 == "Suggests parentification pattern",
-          "F5 header-strip: real multi-word header still strips")
+          "header-strip: real multi-word header still strips")
 
-    # F6: logging call must not raise a formatting error
     import io, contextlib
     buf = io.StringIO()
     logging.basicConfig(level=logging.WARNING, force=True)
@@ -633,11 +581,10 @@ def selftest() -> bool:
             logging.warning("Stage 4: sentence-transformers UNAVAILABLE (%s). Fallback to containment.",
                             Exception("boom"))
         check("Logging error" not in buf.getvalue(),
-              "F6 logging: warning call no longer breaks the formatter")
+              "logging: warning call does not break the formatter")
     except Exception:
-        check(False, "F6 logging: warning call no longer breaks the formatter")
+        check(False, "logging: warning call does not break the formatter")
 
-    # F7: encode failure must not silently report "grounded"
     global _sim_model
     class _BrokenModel:
         def encode(self, *a, **k):
@@ -646,7 +593,7 @@ def selftest() -> bool:
     _sim_model = _BrokenModel()
     result = _cosine_sim("a", "b")
     _sim_model = _sim_model_backup
-    check(result is None, "F7 fail-open: encoder exception returns None, not 1.0")
+    check(result is None, "fail-open: encoder exception returns None, not 1.0")
 
     print("\nSELF-TEST:", "ALL PASS" if ok else "FAILURES PRESENT")
     return ok
@@ -730,7 +677,7 @@ def main():
                  "post-Stage-4 numbers as if they came from a single verify step."),
     }
 
-    atomic_write_json(output_path, data)   # A5
+    atomic_write_json(output_path, data)
     print("\n[SAVE] Stage 4 output -> %s" % output_path)
     print("[DONE] Patient: %s" % patient_id)
 

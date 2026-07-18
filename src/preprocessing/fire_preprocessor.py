@@ -1,7 +1,7 @@
 """
 FiRE Pipeline — Preprocessor v2
 =================================
-Converts raw Wellness Space digitized consultation notes into a
+Converts raw [REDACTED: clinical partner site] digitized consultation notes into a
 normalized flat format where every line is self-contained and
 carries its full context as a prefix.
 
@@ -50,7 +50,7 @@ TABLE_COLUMN_WORDS = {
 }
 
 # Person name headers → prefix next line only, then reset to subsection
-# Includes multi-word family member labels found in Wellness Space notes
+# Includes multi-word family member labels found in [REDACTED: clinical partner site] notes
 # Parenthetical qualifiers like "(paternal)", "(maternal)" are stripped
 # before matching, so "Grandfather (paternal)" matches "grandfather".
 PERSON_HEADERS = {

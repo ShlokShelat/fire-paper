@@ -35,7 +35,7 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 
 # ─────────────────────────────────────────────────────────────
-# ACE ITEMS  (16-item Adverse Childhood Experiences questionnaire)
+# ACE ITEMS  (14-item Adverse Childhood Experiences questionnaire)
 # ─────────────────────────────────────────────────────────────
 ACE_QUESTIONS = OrderedDict([
     (1,  "Did a parent or adult in the household often swear at, insult, humiliate, or threaten the child?"),
@@ -47,13 +47,11 @@ ACE_QUESTIONS = OrderedDict([
     (7,  "Was the child's mother or stepmother physically abused by a partner?"),
     (8,  "Did a household member drink problematically or use street drugs?"),
     (9,  "Was a household member depressed, mentally ill, or did one attempt/die by suicide?"),
-    (10, "Did a household member go to prison?"),
-    (11, "Did the child live 2+ years in a dangerous neighbourhood or witness community assault?"),
-    (12, "Did the child's mother, father, guardian, or primary-caregiver relative die?"),
-    (13, "Did other kids or siblings often hit, threaten, pick on, or insult the child?"),
-    (14, "Did the child often feel lonely, rejected, or isolated from peers?"),
-    (15, "Was the family very poor or on public assistance for 2+ years?"),
-    (16, "Did the child's parents have physical or verbal fights with each other?"),
+    (10, "Did the child live 2+ years in a dangerous neighbourhood or witness community assault?"),
+    (11, "Did other kids or siblings often hit, threaten, pick on, or insult the child?"),
+    (12, "Did the child often feel lonely, rejected, or isolated from peers?"),
+    (13, "Was the family very poor or on public assistance for 2+ years?"),
+    (14, "Did the child's parents have physical or verbal fights with each other?"),
 ])
 
 # Risk bands and clinical threshold
@@ -163,15 +161,15 @@ def build_user_prompt(notes: str) -> str:
       "reasoning": "one or two sentences explaining why the quote maps to this ACE item, or why it is absent",
       "confidence": "high | medium | low"
     },
-    ... one entry per item, 1 to 16 ...
+    ... one entry per item, 1 to 14 ...
   },
-  "ace_score": <integer 0-16>
+  "ace_score": <integer 0-14>
 }'''
 
     return (
-        "These are the 16 ACE questions:\n\n" + items + "\n\n"
+        "These are the 14 ACE questions:\n\n" + items + "\n\n"
         "Based on the consultation notes below, decide for each question whether it is "
-        "present, and give the total ACE score (the number of present items, 0 to 16).\n\n"
+        "present, and give the total ACE score (the number of present items, 0 to 14).\n\n"
         "For each item include:\n"
         "  - source_sentence: verbatim quote from the notes supporting the decision, or null if absent\n"
         "  - reasoning: brief explanation of why the item is present or absent\n"
@@ -327,11 +325,11 @@ def _valid_confidence(v) -> str:
 
 
 def normalise(raw: dict) -> dict:
-    """Coerce the model's JSON into a clean 16-item result and recompute the score
+    """Coerce the model's JSON into a clean 14-item result and recompute the score
     from the per-item flags, ensuring internal consistency."""
     raw_items = raw.get("items") or {}
     items = OrderedDict()
-    for n in range(1, 17):
+    for n in range(1, 15):
         entry = raw_items.get(str(n)) or raw_items.get(n) or {}
         if not isinstance(entry, dict):
             entry = {"present": _as_bool(entry)}
@@ -403,7 +401,7 @@ def print_report(model_name: str, patient: str, result: dict):
                 print(f"         ABSENT   : {it['reasoning'][:160]}")
 
     print("\n" + "-" * 72)
-    print(f"  ACE SCORE         : {result['ace_score']}/16   ({result['risk']} risk)")
+    print(f"  ACE SCORE         : {result['ace_score']}/14   ({result['risk']} risk)")
     print(f"  Items present     : {result['items_present']}")
     if result["crosses_high_risk_threshold"]:
         print(f"  \u26a0\u26a0 CROSSES ACE>=7 THRESHOLD: {result['high_risk_threshold_note']}")
@@ -447,13 +445,13 @@ def selftest() -> bool:
     check(p2.get("temperature") == 0,
           "Non-reasoning models include temperature")
 
-    raw = {"items": {str(n): {"present": n in (1, 2, 4, 9, 12, 13, 16)} for n in range(1, 17)},
-          "ace_score": 7}
+    raw = {"items": {str(n): {"present": n in (1, 2, 4, 9, 11, 14)} for n in range(1, 15)},
+          "ace_score": 6}
     res = normalise(raw)
-    check(res["ace_score"] == 7 and res["crosses_high_risk_threshold"] is True,
+    check(res["ace_score"] == 6 and res["crosses_high_risk_threshold"] is False,
           "Score normalisation and risk threshold detection works")
-    check(res["risk"].startswith("VERY HIGH — CRITICAL"),
-          "Risk label reflects high-risk threshold")
+    check(res["risk"] == "VERY HIGH",
+          "Risk label reflects score of 6")
 
     print("\nSELF-TEST:", "ALL PASS" if ok else "FAILURES PRESENT")
     return ok

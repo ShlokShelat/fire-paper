@@ -7,7 +7,7 @@ Extracted and converted from the appendix's verified LaTeX source.
 This section gives the actual prompts used by the three frontier-model baselines
 (see technical_appendix for detail) in both evaluation conditions: direct scoring from notes
 alone, and reconciliation against the patient's self-filled form. Both conditions
-share the same sixteen ACE items reproduced verbatim in this technical appendix (Section 2),
+share the same fourteen ACE items reproduced verbatim in this technical appendix (Section 2),
 so that section is not repeated here.
 
 ## Direct scoring prompt ##
@@ -23,17 +23,17 @@ notes.
 
 ----END PROMPT----
 
-The user message is built from the sixteen ACE items (see technical_appendix for detail) plus
+The user message is built from the fourteen ACE items (see technical_appendix for detail) plus
 the notes themselves, with an explicit output schema:
 
 ----BEGIN PROMPT----
 
-These are the 16 ACE questions:
+These are the 14 ACE questions:
 
-[the sixteen items, one per line, as "ACE-N: question text"]
+[the fourteen items, one per line, as "ACE-N: question text"]
 
 Based on the consultation notes below, decide for each question whether it is
-present, and give the total ACE score (the number of present items, 0 to 16).
+present, and give the total ACE score (the number of present items, 0 to 14).
 
 For each item include:
 
@@ -65,11 +65,11 @@ this ACE item, or why it is absent",
 
  },
 
- ... one entry per item, 1 to 16 ...
+ ... one entry per item, 1 to 14 ...
 
  },
 
- "ace_score": \(<\)integer 0-16\(>\)
+ "ace_score": <integer 0-14>
 
 }
 
@@ -107,7 +107,7 @@ for the same patient.
 Your task: starting from the patient's own answers, REVISE the questionnaire using
 the consultation notes. Change an item's answer ONLY when the notes give evidence
 for a different answer. Note that the consultation notes may not cover every item
-- they are not guaranteed to mention everything the patient reported.
+- they are not guaranteed to mention everything the notes reported.
 
 For every item, give your final value (present = true for 1, false for 0) with a
 supporting source quote, reasoning, and confidence. For any item whose answer you
@@ -115,7 +115,7 @@ changed from the patient's, also give the reason for the change.
 
 PATIENT'S SELF-FILLED ACE FORM (item - question - patient's answer):
 
-[the sixteen items, each followed by "patient's answer: 0" or "patient's
+[the fourteen items, each followed by "patient's answer: 0" or "patient's
 answer: 1"]
 
 Respond with JSON only, in this shape:
@@ -141,11 +141,11 @@ notes justifies the change; otherwise null"
 
  },
 
- ... one entry per item, 1 to 16 ...
+ ... one entry per item, 1 to 14 ...
 
  },
 
- "ace_score": \(<\)integer 0-16\(>\)
+ "ace_score": <integer 0-14>
 
 }
 
@@ -181,4 +181,3 @@ baseline artificially stronger on the one axis it is being measured against; if 
 windowed baseline variant is wanted for some other purpose, the scripts' own
 documentation is explicit that it should be a separate, clearly-named mode, not a
 silent change to what "the baseline" means throughout the paper.
-

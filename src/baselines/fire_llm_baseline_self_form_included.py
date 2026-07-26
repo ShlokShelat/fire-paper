@@ -4,7 +4,7 @@ LLM-based ACE scoring: direct mode (score from notes) or reconciliation mode
 (revise patient's self-filled form using notes).
 
 DIRECT MODE (default):
-  Queries the model to score the 16-item Adverse Childhood Experiences (ACE)
+  Queries the model to score the 14-item Adverse Childhood Experiences (ACE)
   questionnaire directly from consultation notes.
   
   python3 script.py notes.txt --model gpt-5.1
@@ -38,7 +38,7 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 
 # ─────────────────────────────────────────────────────────────
-# ACE ITEMS  (16-item Adverse Childhood Experiences questionnaire)
+# ACE ITEMS  (14-item Adverse Childhood Experiences questionnaire)
 # ─────────────────────────────────────────────────────────────
 ACE_QUESTIONS = OrderedDict([
     (1,  "Did a parent or adult in the household often swear at, insult, humiliate, or threaten the child?"),
@@ -50,13 +50,11 @@ ACE_QUESTIONS = OrderedDict([
     (7,  "Was the child's mother or stepmother physically abused by a partner?"),
     (8,  "Did a household member drink problematically or use street drugs?"),
     (9,  "Was a household member depressed, mentally ill, or did one attempt/die by suicide?"),
-    (10, "Did a household member go to prison?"),
-    (11, "Did the child live 2+ years in a dangerous neighbourhood or witness community assault?"),
-    (12, "Did the child's mother, father, guardian, or primary-caregiver relative die?"),
-    (13, "Did other kids or siblings often hit, threaten, pick on, or insult the child?"),
-    (14, "Did the child often feel lonely, rejected, or isolated from peers?"),
-    (15, "Was the family very poor or on public assistance for 2+ years?"),
-    (16, "Did the child's parents have physical or verbal fights with each other?"),
+    (10, "Did the child live 2+ years in a dangerous neighbourhood or witness community assault?"),
+    (11, "Did other kids or siblings often hit, threaten, pick on, or insult the child?"),
+    (12, "Did the child often feel lonely, rejected, or isolated from peers?"),
+    (13, "Was the family very poor or on public assistance for 2+ years?"),
+    (14, "Did the child's parents have physical or verbal fights with each other?"),
 ])
 
 # Risk bands and clinical threshold
@@ -131,13 +129,13 @@ def _form_num(k) -> "int | None":
 
 
 def read_form(path: str) -> "OrderedDict[int,int]":
-    """Load the patient's self-filled ACE form -> {1..16: 0 or 1}.
+    """Load the patient's self-filled ACE form -> {1..14: 0 or 1}.
 
     Tolerant of shape. Accepts:
       dict keyed by item number: {"1": 1, "2": 0, ...}
       dict with nested values: {"1": {"score": 1}, ...}
       list of dicts: [{"item": 1, "score": 1}, ...]
-      bare list of scalars: [1, 0, 1, 1, ...] — read positionally as ACE-1..16
+      bare list of scalars: [1, 0, 1, 1, ...] — read positionally as ACE-1..14
     
     Keys may be '1' / 'ACE 1' / 'ACE-1' / 'ACE1' / int; values may be 0/1, '0'/'1',
     true/false, or dict with score/present/value/answer/endorsed/yes field.
@@ -147,12 +145,12 @@ def read_form(path: str) -> "OrderedDict[int,int]":
     if isinstance(data, dict) and isinstance(data.get("items"), (dict, list)):
         data = data["items"]
 
-    form = OrderedDict((n, 0) for n in range(1, 17))
+    form = OrderedDict((n, 0) for n in range(1, 15))
 
     if isinstance(data, dict):
         for k, v in data.items():
             n = _form_num(k)
-            if n and 1 <= n <= 16:
+            if n and 1 <= n <= 14:
                 form[n] = _form_val(v)
 
     elif isinstance(data, list):
@@ -161,11 +159,11 @@ def read_form(path: str) -> "OrderedDict[int,int]":
             for entry in data:
                 n = _form_num(entry.get("item") or entry.get("id") or entry.get("ace")
                               or entry.get("number") or "")
-                if n and 1 <= n <= 16:
+                if n and 1 <= n <= 14:
                     form[n] = _form_val(entry)
         elif data:
-            # bare list of scalars: read positionally as ACE-1..ACE-16
-            for i, v in enumerate(data[:16]):
+            # bare list of scalars: read positionally as ACE-1..ACE-14
+            for i, v in enumerate(data[:14]):
                 form[i + 1] = _form_val(v)
 
     return form
@@ -252,15 +250,15 @@ def build_user_prompt(notes: str) -> str:
       "reasoning": "one or two sentences explaining why the quote maps to this ACE item, or why it is absent",
       "confidence": "high | medium | low"
     },
-    ... one entry per item, 1 to 16 ...
+    ... one entry per item, 1 to 14 ...
   },
-  "ace_score": <integer 0-16>
+  "ace_score": <integer 0-14>
 }'''
 
     return (
-        "These are the 16 ACE questions:\n\n" + items + "\n\n"
+        "These are the 14 ACE questions:\n\n" + items + "\n\n"
         "Based on the consultation notes below, decide for each question whether it is "
-        "present, and give the total ACE score (the number of present items, 0 to 16).\n\n"
+        "present, and give the total ACE score (the number of present items, 0 to 14).\n\n"
         "For each item include:\n"
         "  - source_sentence: verbatim quote from the notes supporting the decision, or null if absent\n"
         "  - reasoning: brief explanation of why the item is present or absent\n"
@@ -287,9 +285,9 @@ def build_reconcile_prompt(notes: str, form: dict) -> str:
       "confidence": "high | medium | low",
       "revision_reason": "if you changed the patient's answer, what in the notes justifies the change; otherwise null"
     },
-    ... one entry per item, 1 to 16 ...
+    ... one entry per item, 1 to 14 ...
   },
-  "ace_score": <integer 0-16>
+  "ace_score": <integer 0-14>
 }'''
 
     return (
@@ -439,7 +437,7 @@ def normalise(raw: dict) -> dict:
     the score from the per-item flags, ensuring internal consistency."""
     raw_items = raw.get("items") or {}
     items = OrderedDict()
-    for n in range(1, 17):
+    for n in range(1, 15):
         entry = raw_items.get(str(n)) or raw_items.get(n) or {}
         if not isinstance(entry, dict):
             entry = {"present": _as_bool(entry)}
@@ -488,7 +486,7 @@ def normalise_reconcile(raw: dict, form: dict) -> dict:
     the patient's self-report and flag any change without a stated reason (over-editing)."""
     raw_items = raw.get("items") or {}
     items = OrderedDict()
-    for n in range(1, 17):
+    for n in range(1, 15):
         entry = raw_items.get(str(n)) or raw_items.get(n) or {}
         if not isinstance(entry, dict):
             entry = {"present": _as_bool(entry)}
@@ -518,7 +516,7 @@ def normalise_reconcile(raw: dict, form: dict) -> dict:
         }
 
     recomputed   = sum(1 for it in items.values() if it["present"])
-    self_score   = sum(int(form.get(n, 0)) for n in range(1, 17))
+    self_score   = sum(int(form.get(n, 0)) for n in range(1, 15))
     model_score  = raw.get("ace_score")
     try:
         model_score = int(model_score)
@@ -530,7 +528,6 @@ def normalise_reconcile(raw: dict, form: dict) -> dict:
                 "self_report": items[n]["self_report"], "final": items[n]["final"],
                 "revision_reason": items[n]["revision_reason"] or None}
                for n in changed_items]
-    # a change with no stated reason is a red flag for over-editing
     unjustified_changes = [n for n in changed_items if not items[n]["revision_reason"]]
     low_confidence_items = [n for n, it in items.items() if it["confidence"] == "low"]
 
@@ -579,7 +576,7 @@ def print_report(model_name: str, patient: str, result: dict):
                 print(f"         ABSENT   : {it['reasoning'][:160]}")
 
     print("\n" + "-" * 72)
-    print(f"  ACE SCORE         : {result['ace_score']}/16   ({result['risk']} risk)")
+    print(f"  ACE SCORE         : {result['ace_score']}/14   ({result['risk']} risk)")
     print(f"  Items present     : {result['items_present']}")
     if result["crosses_high_risk_threshold"]:
         print(f"  \u26a0\u26a0 CROSSES ACE>=7 THRESHOLD: {result['high_risk_threshold_note']}")
@@ -615,8 +612,8 @@ def print_report_reconcile(model_name: str, patient: str, result: dict):
             print(f"        REVISION : {rr[:200]}")
 
     print("\n" + "-" * 72)
-    print(f"  SELF-REPORT SCORE : {result['self_report_score']}/16   ({result['self_report_risk']} risk)")
-    print(f"  REVISED SCORE     : {result['ace_score']}/16   ({result['risk']} risk)")
+    print(f"  SELF-REPORT SCORE : {result['self_report_score']}/14   ({result['self_report_risk']} risk)")
+    print(f"  REVISED SCORE     : {result['ace_score']}/14   ({result['risk']} risk)")
     print(f"  Items present     : {result['items_present']}")
     if result["crosses_high_risk_threshold"]:
         print(f"  \u26a0\u26a0 CROSSES ACE>=7 THRESHOLD: {result['high_risk_threshold_note']}")
@@ -670,12 +667,12 @@ def selftest() -> bool:
 
     import tempfile
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump([1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0], f)
+        json.dump([1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], f)
         bare_list_path = f.name
     form = read_form(bare_list_path)
-    check(sum(form.values()) == 5,
+    check(sum(form.values()) == 4,
           "Bare list of scalars is read positionally, not silently zeroed")
-    check(form[1] == 1 and form[2] == 0 and form[12] == 1,
+    check(form[1] == 1 and form[2] == 0 and form[7] == 1,
           "Positional mapping is correct (index 0 -> ACE-1, etc.)")
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -692,13 +689,13 @@ def selftest() -> bool:
     check(form3[1] == 1 and form3[5] == 0,
           "List-of-dict forms still parse correctly")
 
-    form4 = OrderedDict((n, 0) for n in range(1, 17))
+    form4 = OrderedDict((n, 0) for n in range(1, 15))
     form4[1] = 1
     raw = {
         "items": {
             "1": {"present": False, "revision_reason": "notes contradict this"},
             "2": {"present": True},
-            **{str(n): {"present": False} for n in range(3, 17)},
+            **{str(n): {"present": False} for n in range(3, 15)},
         },
         "ace_score": 1,
     }

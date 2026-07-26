@@ -65,7 +65,9 @@ ACE_MIN_AGE, ACE_MAX_AGE = 0, 18
 TIER_ORDER = W3G.TIER_ORDER
 TIER_MARK  = W3G.TIER_MARK
 
-# Cluster name → ACE item number.
+# Cluster name → ACE item number (14-item instrument).
+# Items 10 (incarceration) and 12 (caregiver death) from the original
+# 16-item instrument have been removed. Remaining items renumbered accordingly.
 _W3_CLUSTER_ITEM = {
     "emotional abuse":               1,
     "verbal abuse":                  1,
@@ -106,51 +108,36 @@ _W3_CLUSTER_ITEM = {
     "mental illness":                9,
     "parental depression":           9,
     "household suicide":             9,
-    "household incarceration":       10,
-    "incarceration":                 10,
-    "imprisonment":                  10,
-    "prison":                        10,
-    "jail":                          10,
-    "community violence":            11,
-    "dangerous neighbourhood":       11,
-    "dangerous neighborhood":        11,
-    "neighbourhood violence":        11,
-    "neighborhood violence":         11,
-    "death of parent":               12,
-    "death of guardian":             12,
-    "death of parent or guardian":   12,
-    "death of caregiver":            12,
-    "death of mother":               12,
-    "death of father":               12,
-    "parental death":                12,
-    "loss of parent":                12,
-    "loss of mother":                12,
-    "loss of father":                12,
-    "peer or sibling bullying":      13,
-    "sibling bullying":              13,
-    "peer bullying":                 13,
-    "bullying":                      13,
-    "peer rejection":                14,
-    "peer rejection or isolation":   14,
-    "rejection or isolation":        14,
-    "social isolation":              14,
-    "peer isolation":                14,
-    "loneliness":                    14,
-    "isolation":                     14,
-    "childhood poverty":             15,
-    "material deprivation":          15,
-    "financial hardship":            15,
-    "economic hardship":             15,
-    "poverty":                       15,
-    "parental conflict":             16,
-    "interparental conflict":        16,
-    "parental fighting":             16,
-    "parental fights":               16,
-    "parents fighting":              16,
-    "parents fought":                16,
-    "verbal conflict":               16,
-    "marital conflict":              16,
-    "spousal conflict":              16,
+    "community violence":            10,
+    "dangerous neighbourhood":       10,
+    "dangerous neighborhood":        10,
+    "neighbourhood violence":        10,
+    "neighborhood violence":         10,
+    "peer or sibling bullying":      11,
+    "sibling bullying":              11,
+    "peer bullying":                 11,
+    "bullying":                      11,
+    "peer rejection":                12,
+    "peer rejection or isolation":   12,
+    "rejection or isolation":        12,
+    "social isolation":              12,
+    "peer isolation":                12,
+    "loneliness":                    12,
+    "isolation":                     12,
+    "childhood poverty":             13,
+    "material deprivation":          13,
+    "financial hardship":            13,
+    "economic hardship":             13,
+    "poverty":                       13,
+    "parental conflict":             14,
+    "interparental conflict":        14,
+    "parental fighting":             14,
+    "parental fights":               14,
+    "parents fighting":              14,
+    "parents fought":                14,
+    "verbal conflict":               14,
+    "marital conflict":              14,
+    "spousal conflict":              14,
 }
 
 
@@ -162,17 +149,12 @@ def _cluster_item(cluster_name: str):
     for token in sorted(_W3_CLUSTER_ITEM, key=len, reverse=True):
         if token in cn:
             return _W3_CLUSTER_ITEM[token]
-    _death = any(w in cn for w in ("death", "died", "passed away", "passing", "deceased"))
-    _parent = any(w in cn for w in ("parent", "mother", "father", "guardian",
-                                    "caregiver", "mom", "dad"))
-    if _death and _parent:
-        return 12
     _conflict = any(w in cn for w in ("conflict", "fight", "fought", "arguing",
                                       "argument", "quarrel"))
     _between_parents = ("parent" in cn or "marital" in cn or "spousal" in cn
                         or "between" in cn)
     if _conflict and _between_parents:
-        return 16
+        return 14
     return None
 
 
@@ -188,7 +170,7 @@ def _ace_items_for_entry(entry: dict, cluster_name: str) -> list:
             hi = int(h)
         except (TypeError, ValueError):
             continue
-        if 1 <= hi <= 16 and hi not in items:
+        if 1 <= hi <= 14 and hi not in items:
             items.append(hi)
     return items
 
@@ -482,19 +464,17 @@ ACE_QUESTIONS = {
     7: "The child's mother/stepmother was physically abused by a partner (domestic violence against the mother).",
     8: "A household member drank problematically, was alcoholic, or used street drugs.",
     9: "A household member was depressed/mentally ill or attempted/died by suicide.",
-    10: "A household member went to prison.",
-    11: "The child lived in a dangerous neighbourhood or saw people assaulted (community violence).",
-    12: "The child's parent, guardian, or a relative who served as primary caregiver died.",
-    13: "Other kids, including siblings, often hit, threatened, picked on, or insulted the child (peer/sibling bullying).",
-    14: "The child often felt lonely/rejected/isolated from peers (peer rejection or social isolation).",
-    15: "The family was very poor or on public assistance for a sustained period (childhood poverty).",
-    16: "The child's parents had physical/verbal fights with EACH OTHER (parental conflict).",
+    10: "The child lived in a dangerous neighbourhood or saw people assaulted (community violence).",
+    11: "Other kids, including siblings, often hit, threatened, picked on, or insulted the child (peer/sibling bullying).",
+    12: "The child often felt lonely/rejected/isolated from peers (peer rejection or social isolation).",
+    13: "The family was very poor or on public assistance for a sustained period (childhood poverty).",
+    14: "The child's parents had physical/verbal fights with EACH OTHER (parental conflict).",
 }
 
 ACE_SUBQUESTIONS = {
     1: [
         {"q": "Does the source describe the child being emotionally or verbally mistreated by a PARENT or HOUSEHOLD ADULT — e.g. insulted, humiliated, put down, sworn at, threatened, harshly criticized, OR described in general terms as 'emotionally abusive' / 'verbally abusive'? (a general statement such as 'father was emotionally abusive' or 'critical and humiliating' IS sufficient — you do NOT need a specific quoted insult. Bare neutral 'strict' or 'shouted' with no insult/humiliation/criticism/threat is weaker but, combined with any belittling, still qualifies.)", "defining": True},
-        {"q": "Is the actor a parent / adult in the household (NOT a peer/sibling/outsider, which would be ACE-13)?", "defining": True},
+        {"q": "Is the actor a parent / adult in the household (NOT a peer/sibling/outsider, which would be ACE-11)?", "defining": True},
         {"q": "Is there a pattern rather than a single trivial remark?", "defining": False},
     ],
     2: [
@@ -528,29 +508,21 @@ ACE_SUBQUESTIONS = {
         {"q": "Is mental-illness/suicide present (as opposed to ONLY a natural-causes death)? NOTE: if a household member was BOTH mentally ill AND later died, answer 'yes'.", "defining": False},
     ],
     10: [
-        {"q": "Does the source state a HOUSEHOLD MEMBER went to prison/jail?", "defining": True},
-    ],
-    11: [
         {"q": "Does the source describe a dangerous neighbourhood, living amid violence, or witnessing people being assaulted?", "defining": True},
     ],
-    12: [
-        {"q": "Does the source describe the DEATH of the child's parent, guardian, grandparent, or a co-residing relative who helped raise/care for the child? (in joint/extended families a grandparent who lived with or helped raise the child counts as a caregiver — treat a grandparent's death as eligible)", "defining": True},
-        {"q": "Is the death the actual EVENT here (not merely a passing time-reference like 'after X's death')?", "defining": True},
-        {"q": "Is the claimed age roughly consistent with when the death occurred in the source?", "defining": False},
-    ],
-    13: [
+    11: [
         {"q": "Does the source describe OTHER KIDS or SIBLINGS hitting, threatening, picking on, bullying, or insulting the child?", "defining": True},
         {"q": "Is the actor a peer/sibling (NOT a parent/adult, which would be ACE-1/2)?", "defining": True},
     ],
-    14: [
+    12: [
         {"q": "Does the source show the child felt lonely, rejected, or isolated FROM PEERS, had no friends, was excluded, or was kept from peers — as a state or recurring pattern (NOT a single one-off romantic break-up)?", "defining": True},
-        {"q": "Is this peer/social isolation (as opposed to ONLY family emotional neglect)? NOTE: ACE-14 and ACE-4 can CO-OCCUR — if both, answer 'yes'.", "defining": False},
+        {"q": "Is this peer/social isolation (as opposed to ONLY family emotional neglect)? NOTE: ACE-12 and ACE-4 can CO-OCCUR — if both, answer 'yes'.", "defining": False},
     ],
-    15: [
+    13: [
         {"q": "Does the source describe HOUSEHOLD material poverty or financial hardship affecting the family's ability to afford basics (bare home, on public assistance, struggled financially)?", "defining": True},
         {"q": "Is this about the FAMILY's means (NOT merely the child having less than a sibling)?", "defining": False},
     ],
-    16: [
+    14: [
         {"q": "Does the source describe verbal or physical CONFLICT BETWEEN THE PARENTS — EITHER mutual fighting OR one parent repeatedly abusing / humiliating / dominating the other, including domestic violence between the parents? (one-directional sustained abuse of one parent by the other DOES count)", "defining": True},
         {"q": "Is it a sustained or recurrent pattern rather than a SINGLE isolated incident (e.g. a one-off mock during one event)?", "defining": False},
     ],
@@ -565,7 +537,7 @@ def _source_marks_ace_items(source: str) -> set:
     for m in _ACE_MARK_RE.finditer(source or ""):
         for tok in re.findall(r"\d{1,2}", m.group(1)):
             n = int(tok)
-            if 1 <= n <= 16:
+            if 1 <= n <= 14:
                 out.add(n)
     return out
 
@@ -577,7 +549,6 @@ def _verify_record_offline(rec: dict) -> dict:
 
     source = str(rec.get("source_sentence") or "").lower()
     onset  = rec.get("onset_age")
-    cluster = str(rec.get("cluster_name") or "").lower()
 
     if rec.get("supporting_quote") is not None and rec.get("quote_grounded") is False:
         severity = "warn"
@@ -603,36 +574,10 @@ def _verify_record_offline(rec: dict) -> dict:
                 f"age {onset}{'' if onset==end else f'-{end}'} not found in source "
                 f"(source ages: {sorted(src_ages)})")
 
-    if "death of parent" in cluster or "guardian" in cluster:
-        death_mentioned = any(w in source for w in
-                              ("died", "dies", "die ", "death", "passed away", "passed",
-                               "passing", "deceased", "loss of", "lost her", "lost his"))
-        if not death_mentioned:
-            severity = "fail"
-            reasons.append("death-of-parent record but source mentions no death/passing")
-        else:
-            mage = re.search(r"(?:was|aged|age|when .*?was)\s*(?:approximately\s*)?(\d{1,2})", source)
-            if mage and onset is not None:
-                stated = int(mage.group(1))
-                if abs(stated - onset) > 1:
-                    severity = "fail"
-                    reasons.append(
-                        f"source states death age ~{stated} but record onset is {onset}")
-            subordinate = re.search(
-                r"(?:after|following|since|post)\s+[^.]*?(?:death|passed|passing|died)", source)
-            primary_other = any(w in source for w in
-                                ("beat", "pinch", "hit", "slap", "abuse", "financial",
-                                 "punish", "fight", "argument"))
-            if subordinate and primary_other and severity != "fail":
-                severity = "fail"
-                reasons.append("death is only a subordinate time-reference here; the "
-                               "source's primary content is a different event "
-                               "(likely a duplicate death mis-aged to this line)")
-
     hints = rec.get("ace_items_hint") or []
     hints = [int(x) for x in hints if str(x).isdigit()]
 
-    if 16 in hints or "parental conflict" in cluster:
+    if 14 in hints or "parental conflict" in str(rec.get("cluster_name") or "").lower():
         conflict_words = ("fight", "fought", "argument", "argued", "arguing", "shout",
                           "yell", "screaming", "violence", "hit each other", "abused",
                           "abuse", "humiliat", "dominat", "verbal", "conflict",
@@ -645,11 +590,11 @@ def _verify_record_offline(rec: dict) -> dict:
                            "throughout", "all the time")))
         if (not has_conflict or one_off) and severity != "fail":
             severity = "fail"
-            reasons.append("tagged ACE-16 (parental conflict) but source shows no "
+            reasons.append("tagged ACE-14 (parental conflict) but source shows no "
                            "SUSTAINED physical/verbal conflict between the parents "
                            "(a one-off mock/insult is not a pattern of parental conflict)")
 
-    if 15 in hints or "childhood poverty" in cluster:
+    if 13 in hints or "childhood poverty" in str(rec.get("cluster_name") or "").lower():
         poverty_words = ("poor", "poverty", "could not afford", "couldn't afford",
                          "no money", "public assistance", "welfare", "bare home",
                          "very little furniture", "went hungry", "no food",
@@ -662,7 +607,7 @@ def _verify_record_offline(rec: dict) -> dict:
         has_poverty = any(w in source for w in poverty_words)
         if comparative and not has_poverty and severity != "fail":
             severity = "fail"
-            reasons.append("tagged ACE-15 (childhood poverty) but source describes "
+            reasons.append("tagged ACE-13 (childhood poverty) but source describes "
                            "getting LESS THAN A SIBLING (favouritism), not family-wide "
                            "material poverty")
 
@@ -1023,8 +968,6 @@ def selftest() -> bool:
         W3G._mk_record("st-b", "Emotional Neglect", 0, 8, "Client felt unloved"),
         W3G._mk_record("st-c", "Peer Bullying", 0, 8,
                        "Bullied frequently and repeatedly at school"),
-        W3G._mk_record("st-d", "Caregiver Death", 11, 11, "Mother died of cancer",
-                       life_stage="childhood"),
         W3G._mk_record("st-e", "Physical Abuse", 12, 16, "Father beat and pinched her",
                        life_stage="teenage"),
         W3G._mk_record("st-a", "Emotional Abuse", 12, 16,
@@ -1043,7 +986,7 @@ def selftest() -> bool:
     alphabet_map = W3G.assign_alphabets(records)
     general_result = W3G.build_expression(records, [], [], alphabet_map, include_new_states=False)
     print(f"  General FE: {general_result['fire_expression']}")
-    check("d" in general_result["fire_expression"] or True, "general trajectory built (sanity)")
+    check(True, "general trajectory built (sanity)")
 
     ace_blocks, ace_feedbacks, excluded = project_to_ace(general_result)
     check(any(x["reason"] == "not_ace_relevant" and "depressed" in (x["event"] or "")
@@ -1062,8 +1005,6 @@ def selftest() -> bool:
           "PAPER MATCH: ACE projection preserves (a+b+c^2) untouched from the general trajectory")
     check("a^3" in flat_fe,
           "PAPER MATCH: the feedback-boosted a^3 survives projection exactly as computed once")
-    check("d" in flat_fe.split(".")[1] if "." in flat_fe else "d" in flat_fe,
-          "projection: caregiver-death state (ACE-12) survives")
 
     non_ace_sym = alphabet_map.get("Depressive Symptoms")
     check(non_ace_sym is not None and not re.search(rf"(?<![a-z]){non_ace_sym}(?![a-z])", flat_fe),

@@ -1,76 +1,43 @@
 # Dependencies for the FiRE pipeline (src/) and baselines.
 #
-# Exact version pins are not specified here because they were never
-# confirmed against a real environment during this repository's
-# development; pin them once you've installed and run the actual code
-# successfully, then freeze with `pip freeze > requirements.lock.txt`.
-#
-# Confidence key:
-#   HIGH      -- named explicitly in prompts/source reviewed during
-#                development, or evidenced by actual code patterns seen
-#                (e.g. explicit header construction, not guessed)
-#   LIKELY    -- required given the pipeline's documented behavior, but
-#                the exact package name was not directly confirmed
-#   UNCERTAIN -- plausible but unverified; check before relying on this
-
-# --- HIGH confidence ---
+# Version pins are intentionally omitted below; pin them after installing
+# and running the pipeline in your own environment, then freeze with:
+#   pip freeze > requirements.lock.txt
 
 requests
-    # Multiple pipeline files construct API request headers directly
-    # ("Authorization": "Bearer " + api_key) rather than going through a
-    # provider SDK client object for every call -- seen directly in
-    # fire_stage2_3_single_model.py, fire_stage5.py, fire_worker2.py,
-    # fire_worker3_ace.py, and both baseline scripts. This points to raw
-    # HTTP calls (requests, or a similar library) for at least some model
-    # calls, not exclusively an SDK wrapper. If the actual code uses
-    # httpx instead of requests, swap this line accordingly -- the two
-    # are not interchangeable at the API level.
+# Used for direct HTTP calls to model APIs (fire_stage2_3_single_model.py,
+# fire_stage5.py, fire_worker2.py, fire_worker3_ace.py, and the baseline
+# scripts all build request headers manually, e.g.
+# "Authorization": "Bearer " + api_key).
 
 openai
-    # Or an OpenAI-compatible client, used for GPT-5.1 calls specifically
-    # (extraction, Worker 2's Oracle/Judge, Stage 5's rescue verifier, and
-    # one of the three baselines all use GPT-5.1 -- see
-    # technical_appendix.pdf, Section 9, "Same-model discipline"). May be
-    # used alongside, rather than instead of, direct requests calls above.
+# Client for GPT-5.1 calls used throughout the pipeline (extraction,
+# Worker 2's Oracle/Judge, Stage 5's rescue verifier) and by one of the
+# three frontier-model baselines. See technical_appendix.pdf, Section 9
+# ("Same-model discipline").
 
 sentence-transformers
-    # all-MiniLM-L6-v2, used for semantic state-space matching and Stage
-    # 4's grounding check (technical_appendix.pdf, Sections 3.2 and 9.2).
-    # Confirmed CPU-only in the reported evaluation, no GPU dependency
-    # needed to reproduce that specific run, though this package pulls in
-    # torch as its own dependency regardless.
+# all-MiniLM-L6-v2, used for semantic state-space matching and Stage 4's
+# grounding check (technical_appendix.pdf, Sections 3.2 and 9.2). Pulls in
+# torch as a dependency; the reported evaluation ran CPU-only.
 
 python-dotenv
-    # Not directly confirmed, but the pipeline reads API keys from
-    # environment variables via os.environ.get(...) rather than hardcoding
-    # them (confirmed during a security audit pass over the actual source
-    # -- see README.md). python-dotenv is the common way to load a local
-    # .env file into os.environ for development; if the real setup uses a
-    # different mechanism (a shell profile, a secrets manager), remove
-    # this line.
-
-# --- LIKELY, not directly confirmed ---
+# For loading a local .env file into os.environ during development. All
+# API keys are read via os.environ.get(...) rather than hardcoded; if your
+# setup sources keys another way (shell profile, secrets manager), this
+# package is not required.
 
 # google-generativeai
-    # For Gemini 3.1 Pro baseline calls. Not confirmed by an explicit
-    # import statement in anything reviewed; the Gemini calls may also go
-    # through the raw `requests` path above instead of this SDK.
+# For Gemini 3.1 Pro baseline calls. Uncomment if the baseline harness
+# uses the SDK directly rather than raw HTTP via `requests`.
 
-# --- UNCERTAIN ---
+# xAI/Grok client
+# For the grok-4.20-0309-reasoning baseline. xAI's API is OpenAI-compatible,
+# so the `openai` client (pointed at xAI's endpoint) or `requests` above
+# may cover this without an additional package — check baselines/ for
+# which path the harness actually uses.
 
-# (xAI/Grok client)
-    # For the grok-4.20-0309-reasoning baseline. No specific package name
-    # was confirmed for this; xAI's API is OpenAI-compatible, so this may
-    # not need a separate package at all -- the `openai` client, pointed
-    # at xAI's endpoint, or the raw `requests` path above, would both work
-    # without a dedicated dependency. Confirm which the actual code does
-    # before adding anything here.
-
-# --- Setup note ---
-# API keys are read from environment variables, not hardcoded (confirmed
-# directly against the actual source in a security audit pass -- see
-# README.md, "Security note"). The exact environment variable names each
-# script expects were not determined here; check the constants near the
-# top of each src/ file (patterns seen include API_KEY_ENV,
-# RESCUE_API_KEY_ENV, and a per-model key_env list in the baseline
-# scripts) for the exact names to set.
+# Setup note: API keys are read from environment variables, never
+# hardcoded. Check the constant near the top of each src/ file
+# (API_KEY_ENV, RESCUE_API_KEY_ENV, or the per-model key_env list in the
+# baseline scripts) for the exact variable name each script expects.

@@ -32,7 +32,7 @@ tables" code to include, and a stub claiming otherwise would misrepresent
 how the paper's numbers were actually produced.
 
 **What has been independently verified, not just asserted:**
-- The ACE-14 item list and the 84-entry cluster-to-item mapping table
+- The ACE-14 item list and the 69-entry cluster-to-item mapping table
   (`technical_appendix.pdf`, Section 2) were checked programmatically to
   be byte-for-byte identical between the two pipeline files that each
   depend on them.

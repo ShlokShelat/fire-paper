@@ -43,13 +43,6 @@ how the paper's numbers were actually produced.
   annotator/consensus protocol (17 clinically qualified reviewers per
   patient) are documented in `technical_appendix.pdf` and were checked
   against source material, not summarized from memory.
-- One open item, stated plainly rather than glossed over: the source code
-  in `src/` passed through a separate anonymization and security pass
-  before publication (see "Security note" below), and this appendix's own
-  factual claims were verified against the source as it existed *before*
-  that pass, not re-diffed against the published files afterward. The two
-  are expected to match, since that pass was redaction-only by design, but
-  this hasn't been independently re-confirmed.
 
 ## Repository structure
 

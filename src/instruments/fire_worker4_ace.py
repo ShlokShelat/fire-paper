@@ -1,4 +1,13 @@
-"""FiRE Pipeline — Worker 4 ACE: expression-driven classic ACE scorer (0..16).
+"""FiRE Pipeline — Worker 4 ACE: expression-driven classic ACE scorer (0..14).
+
+India-adapted 14-item ACE instrument (Trivedi et al. 2025a), modified from
+the original 10-item Felitti et al. 1998 assessment. This scorer previously
+used the classic 16-item Western ACE set; it has been remapped to the
+14-item Indian instrument. Two items from the old 16-item set — household
+incarceration and death of a parent/guardian — are not part of the 14-item
+instrument and have been dropped entirely (they carry no ACE item; per the
+FiRE paper's worked example, such events are "dropped at projection, not
+verification").
 
 Usage:
   python3 fire_worker4_ace.py p10_ace_w3.json -o p10_ace_score.json
@@ -16,7 +25,7 @@ from pathlib import Path
 
 
 # ─────────────────────────────────────────────────────────────
-# ACE DEFINITIONS (canonical 16-item set)
+# ACE DEFINITIONS (canonical 14-item, India-adapted set)
 # ─────────────────────────────────────────────────────────────
 
 ACE_QUESTIONS = {
@@ -29,24 +38,22 @@ ACE_QUESTIONS = {
     7:  "Was the child's mother or stepmother physically abused by a partner?",
     8:  "Did a household member drink problematically or use street drugs?",
     9:  "Was a household member depressed, mentally ill, or did one attempt/die by suicide?",
-    10: "Did a household member go to prison?",
-    11: "Did the child live 2+ years in a dangerous neighbourhood or witness community assault?",
-    12: "Did the child's mother, father, guardian, or primary-caregiver relative die?",
-    13: "Did other kids or siblings often hit, threaten, pick on, or insult the child?",
-    14: "Did the child often feel lonely, rejected, or isolated from peers?",
-    15: "Was the family very poor or on public assistance for 2+ years?",
-    16: "Did the child's parents have physical or verbal fights with each other?",
+    10: "Did the child live 2+ years in a dangerous neighbourhood or witness community assault?",
+    11: "Did other kids or siblings often hit, threaten, pick on, or insult the child?",
+    12: "Did the child often feel lonely, rejected, or isolated from peers?",
+    13: "Was the family very poor or on public assistance for 2+ years?",
+    14: "Did the child's parents have physical or verbal fights with each other?",
 }
 
 ACE_CATEGORIES = {
     "abuse":     [1, 2, 3],
     "neglect":   [4, 5],
-    "household": [6, 7, 8, 9, 10],
-    "expanded":  [11, 12, 13, 14, 15, 16],
+    "household": [6, 7, 8, 9],
+    "expanded":  [10, 11, 12, 13, 14],
 }
 
-PRESENCE_ONLY_ITEMS = {6, 10, 12}
-DURATION_ITEMS      = {11, 15}
+PRESENCE_ONLY_ITEMS = {6}
+DURATION_ITEMS      = {10, 13}
 
 MIN_DURATION_SPAN     = 1
 MIN_DURATION_EXPONENT = 2
@@ -61,6 +68,11 @@ HIGH_RISK_NOTE = (
 # ─────────────────────────────────────────────────────────────
 # CLUSTER -> ACE ITEM BINDING
 # ─────────────────────────────────────────────────────────────
+# NOTE: old items 10 (household incarceration) and 12 (death of parent or
+# guardian) are NOT part of the 14-item instrument. Clusters that used to
+# route to those numbers now resolve to None (unmapped / non-ACE), matching
+# the FiRE paper's treatment of caregiver death: verified as a state, but
+# dropped at projection because the 14-item instrument has no counterpart.
 
 CLUSTER_ACE_ITEM = {
     "emotional abuse":               1,
@@ -102,51 +114,57 @@ CLUSTER_ACE_ITEM = {
     "mental illness":                9,
     "parental depression":           9,
     "household suicide":             9,
-    "household incarceration":       10,
-    "incarceration":                 10,
-    "imprisonment":                  10,
-    "prison":                        10,
-    "jail":                          10,
-    "community violence":            11,
-    "dangerous neighbourhood":       11,
-    "dangerous neighborhood":        11,
-    "neighbourhood violence":        11,
-    "neighborhood violence":         11,
-    "death of parent":               12,
-    "death of guardian":             12,
-    "death of parent or guardian":   12,
-    "death of caregiver":            12,
-    "death of mother":               12,
-    "death of father":               12,
-    "parental death":                12,
-    "loss of parent":                12,
-    "loss of mother":                12,
-    "loss of father":                12,
-    "peer or sibling bullying":      13,
-    "sibling bullying":              13,
-    "peer bullying":                 13,
-    "bullying":                      13,
-    "peer rejection":                14,
-    "peer rejection or isolation":   14,
-    "rejection or isolation":        14,
-    "social isolation":              14,
-    "peer isolation":                14,
-    "loneliness":                    14,
-    "isolation":                     14,
-    "childhood poverty":             15,
-    "material deprivation":          15,
-    "financial hardship":            15,
-    "economic hardship":             15,
-    "poverty":                       15,
-    "parental conflict":             16,
-    "interparental conflict":        16,
-    "parental fighting":             16,
-    "parental fights":               16,
-    "parents fighting":              16,
-    "parents fought":                16,
-    "verbal conflict":               16,
-    "marital conflict":              16,
-    "spousal conflict":              16,
+    "community violence":            10,
+    "dangerous neighbourhood":       10,
+    "dangerous neighborhood":        10,
+    "neighbourhood violence":        10,
+    "neighborhood violence":         10,
+    "peer or sibling bullying":      11,
+    "sibling bullying":              11,
+    "peer bullying":                 11,
+    "bullying":                      11,
+    "peer rejection":                12,
+    "peer rejection or isolation":   12,
+    "rejection or isolation":        12,
+    "social isolation":              12,
+    "peer isolation":                12,
+    "loneliness":                    12,
+    "isolation":                     12,
+    "childhood poverty":             13,
+    "material deprivation":          13,
+    "financial hardship":            13,
+    "economic hardship":             13,
+    "poverty":                       13,
+    "parental conflict":             14,
+    "interparental conflict":        14,
+    "parental fighting":             14,
+    "parental fights":               14,
+    "parents fighting":              14,
+    "parents fought":                14,
+    "verbal conflict":               14,
+    "marital conflict":              14,
+    "spousal conflict":              14,
+}
+
+# Non-ACE clusters retained only so cluster_to_ace_item() can recognize them
+# and correctly resolve to None (rather than falling through to a fuzzy
+# match against an unrelated 1-14 item). These never contribute to the score.
+NON_ACE_CLUSTERS = {
+    "household incarceration",
+    "incarceration",
+    "imprisonment",
+    "prison",
+    "jail",
+    "death of parent",
+    "death of guardian",
+    "death of parent or guardian",
+    "death of caregiver",
+    "death of mother",
+    "death of father",
+    "parental death",
+    "loss of parent",
+    "loss of mother",
+    "loss of father",
 }
 
 
@@ -155,6 +173,9 @@ def cluster_to_ace_item(cluster_name: str):
     cn = str(cluster_name or "").lower().strip()
     if not cn:
         return None
+    for token in sorted(NON_ACE_CLUSTERS, key=len, reverse=True):
+        if token in cn:
+            return None
     for token in sorted(CLUSTER_ACE_ITEM, key=len, reverse=True):
         if token in cn:
             return CLUSTER_ACE_ITEM[token]
@@ -162,13 +183,15 @@ def cluster_to_ace_item(cluster_name: str):
     _parent = any(w in cn for w in ("parent", "mother", "father", "guardian",
                                     "caregiver", "mom", "dad"))
     if _death and _parent:
-        return 12
+        # Caregiver death has no counterpart in the 14-item instrument
+        # (verified as a state but dropped at projection, not scored).
+        return None
     _conflict = any(w in cn for w in ("conflict", "fight", "fought", "arguing",
                                       "argument", "quarrel"))
     _between_parents = ("parent" in cn or "marital" in cn or "spousal" in cn
                         or "between" in cn)
     if _conflict and _between_parents:
-        return 16
+        return 14
     return None
 
 
@@ -234,7 +257,7 @@ def _check_duration(item: int, state_codes: list, states_by_code: dict) -> dict:
 # ─────────────────────────────────────────────────────────────
 
 def score_from_expression(w3: dict) -> dict:
-    """Classic ACE score (0..16) from Worker 3 ACE output. Each distinct ACE
+    """Classic ACE score (0..14) from Worker 3 ACE output. Each distinct ACE
     category present counts 1. Exponents are reference weights only."""
     fire_expression = str(w3.get("fire_expression") or "")
     alphabet_mapping = w3.get("alphabet_mapping") or {}
@@ -257,6 +280,9 @@ def score_from_expression(w3: dict) -> dict:
             continue
         det_item = cluster_to_ace_item(cluster)
         w3_items = (inventory.get(sym, {}) or {}).get("ace_items") or []
+        # Worker 3 hints may still carry stale 16-item numbering (10 or 12);
+        # those have no place in the 14-item instrument and are discarded.
+        w3_items = [i for i in w3_items if i not in (10, 12)] if w3_items else w3_items
         w3_item = w3_items[0] if len(w3_items) == 1 else (w3_items or None)
 
         item = det_item
@@ -292,7 +318,7 @@ def score_from_expression(w3: dict) -> dict:
 
     scorecard: "OrderedDict[int, dict]" = OrderedDict()
     duration_unconfirmed_items = []
-    for n in range(1, 17):
+    for n in range(1, 15):
         syms = item_to_symbols.get(n, [])
         present = len(syms) > 0
         item_weight = sum(weights.get(s, 0) for s in syms)
@@ -383,11 +409,11 @@ def build_flags(scorecard: dict, feedback_loops: list) -> dict:
     if present(3) and present(7):
         interaction.append({"rule": "ACE-3 + ACE-7",
             "implication": "Sexual abuse + witnessed domestic violence — elevated dissociation risk"})
-    if present(7) and present(16):
-        interaction.append({"rule": "ACE-7 + ACE-16",
+    if present(7) and present(14):
+        interaction.append({"rule": "ACE-7 + ACE-14",
             "implication": "Pervasive household violence — chronic hypervigilance expected"})
-    if present(1) and present(7) and present(16):
-        interaction.append({"rule": "ACE-1 + 7 + 16",
+    if present(1) and present(7) and present(14):
+        interaction.append({"rule": "ACE-1 + 7 + 14",
             "implication": "Triple household adversity — very high complex-trauma burden"})
 
     feedback_f = []
@@ -419,21 +445,26 @@ def selftest() -> bool:
         print(f"  [{'PASS' if cond else 'FAIL'}] {name}")
         ok = ok and bool(cond)
 
-    # Paper's worked example: EACE = (a+b+c^2)·d·(e+a^3), score = 5
+    # FiRE paper's worked example (Table 1 / Figure 4 / Eq. 2):
+    # E_ACE = (a + b + c^2) . (e + a^3), score = 4, items {1, 2, 4, 11}.
+    # a = emotional abuse (ACE-1), b = felt unloved (ACE-4),
+    # c = peer bullying (ACE-11), e = physical abuse (ACE-2).
+    # Mother's death (d, caregiver death) is verified but has no counterpart
+    # among the 14 items, so it must NOT be scored.
     w3 = {
-        "fire_expression": "[C] (a+b+c^2) . d . (a^3+e)",
+        "fire_expression": "[C] (a+b+c^2) . (a^3+e)",
         "alphabet_mapping": {
-            "a": "Emotional Abuse", "b": "Emotional Neglect", "c": "Peer Bullying",
+            "a": "Emotional Abuse", "b": "Felt Unloved", "c": "Peer Bullying",
             "d": "Death of Parent or Guardian", "e": "Physical Abuse",
         },
         "alphabet_inventory": {
             "a": {"cluster_name": "Emotional Abuse", "ace_items": [1],
                  "contributing_states": ["st-a"], "confidence": 0.9},
-            "b": {"cluster_name": "Emotional Neglect", "ace_items": [4],
+            "b": {"cluster_name": "Felt Unloved", "ace_items": [4],
                  "contributing_states": ["st-b"], "confidence": 0.9},
-            "c": {"cluster_name": "Peer Bullying", "ace_items": [13],
+            "c": {"cluster_name": "Peer Bullying", "ace_items": [11],
                  "contributing_states": ["st-c"], "confidence": 0.9},
-            "d": {"cluster_name": "Death of Parent or Guardian", "ace_items": [12],
+            "d": {"cluster_name": "Death of Parent or Guardian", "ace_items": [],
                  "contributing_states": ["st-d"], "confidence": 0.9},
             "e": {"cluster_name": "Physical Abuse", "ace_items": [2],
                  "contributing_states": ["st-e"], "confidence": 0.9},
@@ -448,47 +479,72 @@ def selftest() -> bool:
         "feedback_loops": [],
     }
     result = score_from_expression(w3)
-    check(result["canonical_ace_score"] == 5,
-          "PAPER MATCH: worked example scores exactly 5 (items 1,4,13,12,2)")
-    check(set(result["items_present"]) == {1, 2, 4, 12, 13},
-          "PAPER MATCH: exactly the items {1,2,4,12,13} Table 1 lists")
+    check(result["canonical_ace_score"] == 4,
+          "PAPER MATCH (FiRE Model excerpt): worked example scores exactly 4 (items 1,2,4,11)")
+    check(set(result["items_present"]) == {1, 2, 4, 11},
+          "PAPER MATCH: exactly the items {1,2,4,11} the paper's Eq. 2 / Figure 4 give")
     check(result["exponent_weights_reference"]["a"] == 4
           and result["exponent_weights_reference"]["c"] == 2,
           "exponent weights carried as reference (a=4, c=2), not affecting the count")
+    check("d" not in {row["symbol"] for row in result["symbol_mapping"] if row["ace_item"] is not None}
+          or all(row["ace_item"] != 10 and row["ace_item"] != 12
+                 for row in result["symbol_mapping"]),
+          "caregiver death (d) never resolves to a scored ACE item (dropped, not scored)")
 
     check(result["crosses_high_risk_threshold"] is False,
-          "score of 5 does not cross the ACE>=7 threshold")
+          "score of 4 does not cross the ACE>=7 threshold")
     check(canonical_risk(6) == "VERY HIGH" and canonical_risk(7).startswith("VERY HIGH — CRITICAL"),
           "6 and 7 are distinguishable risk bands")
 
-    # Duration: single-year state flagged but not dropped
+    # Duration: single-year state flagged but not dropped (ACE-10, was ACE-11)
     w3_dur = {
         "fire_expression": "[C] k",
         "alphabet_mapping": {"k": "Community Violence"},
-        "alphabet_inventory": {"k": {"cluster_name": "Community Violence", "ace_items": [11],
+        "alphabet_inventory": {"k": {"cluster_name": "Community Violence", "ace_items": [10],
                                     "contributing_states": ["dyn-005"], "confidence": 0.8}},
         "resolved_states": [{"state_code": "dyn-005", "onset_age": 10, "end_age": 10, "exponent": 1}],
         "feedback_loops": [],
     }
     res_dur = score_from_expression(w3_dur)
     check(res_dur["canonical_ace_score"] == 1,
-          "single-year ACE-11 state is NOT silently dropped from the count")
-    check(11 in res_dur["duration_unconfirmed_items"],
-          "single-year ACE-11 state IS flagged as duration-unconfirmed")
-    check(res_dur["ace_scorecard"]["11"]["duration_confirmed"] is False,
+          "single-year ACE-10 state is NOT silently dropped from the count")
+    check(10 in res_dur["duration_unconfirmed_items"],
+          "single-year ACE-10 state IS flagged as duration-unconfirmed")
+    check(res_dur["ace_scorecard"]["10"]["duration_confirmed"] is False,
           "scorecard row carries duration_confirmed=False")
 
     w3_dur2 = {
         "fire_expression": "[C] k",
         "alphabet_mapping": {"k": "Community Violence"},
-        "alphabet_inventory": {"k": {"cluster_name": "Community Violence", "ace_items": [11],
+        "alphabet_inventory": {"k": {"cluster_name": "Community Violence", "ace_items": [10],
                                     "contributing_states": ["dyn-006"], "confidence": 0.8}},
         "resolved_states": [{"state_code": "dyn-006", "onset_age": 5, "end_age": 9, "exponent": 1}],
         "feedback_loops": [],
     }
     res_dur2 = score_from_expression(w3_dur2)
-    check(11 not in res_dur2["duration_unconfirmed_items"],
+    check(10 not in res_dur2["duration_unconfirmed_items"],
           "genuine multi-year span (5-9) is confirmed, no flag raised")
+
+    # Dropped items: incarceration and death-of-parent clusters must never
+    # be scored, even if a stale Worker 3 hint still carries old item 10/12.
+    w3_dropped = {
+        "fire_expression": "[C] m + n",
+        "alphabet_mapping": {"m": "Household Incarceration", "n": "Death of Father"},
+        "alphabet_inventory": {
+            "m": {"cluster_name": "Household Incarceration", "ace_items": [10],
+                 "contributing_states": ["st-m"], "confidence": 0.9},
+            "n": {"cluster_name": "Death of Father", "ace_items": [12],
+                 "contributing_states": ["st-n"], "confidence": 0.9},
+        },
+        "resolved_states": [
+            {"state_code": "st-m", "onset_age": 8, "end_age": 9, "exponent": 1},
+            {"state_code": "st-n", "onset_age": 6, "end_age": 6, "exponent": 1},
+        ],
+        "feedback_loops": [],
+    }
+    res_dropped = score_from_expression(w3_dropped)
+    check(res_dropped["canonical_ace_score"] == 0,
+          "incarceration and death-of-parent score ZERO under the 14-item instrument")
 
     # Empty FE scores clean 0
     w3_empty = {
@@ -571,7 +627,7 @@ def main():
                   f"vs W3={c['worker3_items']}")
     print(sep)
     print("  Per-item presence (1 point each if present):")
-    for n in range(1, 17):
+    for n in range(1, 15):
         rec = result["ace_scorecard"][str(n)]
         mark = "\u2713" if rec["present"] else " "
         cl = ", ".join(rec["clusters"]) if rec["clusters"] else ""
@@ -582,7 +638,7 @@ def main():
             dur_flag = "  [DURATION UNCONFIRMED — review]"
         print(f"    [{mark}] ACE-{n:<2d} {rec['category']:<10s}{wt}{cl}{dur_flag}")
     print("-" * 64)
-    print(f"  CANONICAL ACE SCORE : {result['canonical_ace_score']}/16   "
+    print(f"  CANONICAL ACE SCORE : {result['canonical_ace_score']}/14   "
           f"({result['canonical_risk']} risk)")
     print(f"  Items present       : {result['items_present']}")
     print("  Categories present  : " +

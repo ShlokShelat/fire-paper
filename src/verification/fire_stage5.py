@@ -1,6 +1,11 @@
 """
 FiRE Pipeline — Stage 5: Rescue Verifier + Semantic Deduplication
 ==================================================================
+Paper concept: a supplementary pass beyond Verification (stage iii) —
+rescuing wrongly-discarded events and merging accidental sentence-level
+duplicates. Like Stage 4, it is NOT one of the paper's four described
+stages; see point 2 below.
+
 IMPORTANT — READ BEFORE USING THIS MODULE
 ------------------------------------------------------------------
 1. PAPER ALIGNMENT — MODEL (RESOLVED). The paper's central
@@ -18,7 +23,18 @@ IMPORTANT — READ BEFORE USING THIS MODULE
    is a documentation decision, not something this file can resolve on
    its own — see the Stage 4 file's docstring for the same discussion.
 
-Runs on the output of Stage 4 (validated_events_s4.json).
+Pipeline position: an optional fifth pass, run after Stage 4
+(fire_stage4.py) and before Worker 2 (fire_worker2.py).
+
+Main input: a Stage 4 output file (validated_events_s4.json), optionally
+paired with Stage 1's tagged-sentence list for rescue-verifier context.
+Main output: the same events with rescue outcomes (`status_note`) and
+deduplication outcomes (`status="DEDUP"`, `dedup_of`) applied, written
+to a new JSON file so the pre-Stage-5 file is left untouched.
+Key assumption: deduplication only ever merges near-identical events
+within the same (unit_id, subsection) group — it never merges the same
+construct recurring at a different life period, which the paper's
+algebra encodes as feedback, not duplication.
 
 TWO JOBS:
 
@@ -99,6 +115,8 @@ _REASONING_FAMILY_RE = re.compile(r'^(gpt-5|o1|o3|o4)', re.IGNORECASE)
 
 
 def _is_reasoning_model(model_name: str) -> bool:
+    """True if model_name is a reasoning-family model (GPT-5.x, o1/o3/o4)
+    that requires the alternate payload shape built in `_build_rescue_payload`."""
     return bool(_REASONING_FAMILY_RE.match(model_name or ""))
 
 _COMMENTARY_PATTERNS = [
@@ -156,16 +174,21 @@ def _is_commentary(event_text: str) -> bool:
 
 
 def _content_words(text: str) -> frozenset:
+    """Lowercased content-word set for `text`, stripped of DEDUP_STOPWORDS."""
     return frozenset(re.findall(r"[a-z][a-z-]+", text.lower())) - DEDUP_STOPWORDS
 
 
 def _jaccard(a: frozenset, b: frozenset) -> float:
+    """Jaccard similarity between two content-word sets; the fallback
+    dedup metric when no embedding model is available."""
     if not a or not b:
         return 0.0
     return len(a & b) / len(a | b)
 
 
 def _cosine_sim(text_a: str, text_b: str, model) -> float:
+    """Embedding cosine similarity between two event strings, falling
+    back to Jaccard word overlap if encoding fails."""
     try:
         from sentence_transformers import util as st_util
         ea = model.encode(text_a, convert_to_tensor=True)
@@ -176,6 +199,8 @@ def _cosine_sim(text_a: str, text_b: str, model) -> float:
 
 
 def _load_model():
+    """Load the sentence-embedding model used for dedup similarity;
+    returns None (triggering the Jaccard fallback) if unavailable."""
     try:
         from sentence_transformers import SentenceTransformer
         m = SentenceTransformer("all-MiniLM-L6-v2")
@@ -473,6 +498,8 @@ def run_dedup(events: list, model) -> tuple:
 # ─────────────────────────────────────────────────────────────
 
 def atomic_write_json(path: str, obj) -> None:
+    """Write JSON via a temp-file-then-rename so a crash mid-write never
+    leaves a partially-written output file."""
     d = os.path.dirname(os.path.abspath(path)) or "."
     fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
     try:
@@ -491,6 +518,9 @@ def atomic_write_json(path: str, obj) -> None:
 # ─────────────────────────────────────────────────────────────
 
 def selftest() -> bool:
+    """Offline regression guard: exercises dedup group isolation, rescue
+    status-note distinctions, timeline section indexing, and reasoning-
+    model payload shape, all without any network calls."""
     ok = True
 
     def check(cond, name):
@@ -561,6 +591,9 @@ def selftest() -> bool:
 # ─────────────────────────────────────────────────────────────
 
 def main():
+    """CLI entry point: load Stage 4 output (and optional Stage 1 section
+    context), run the rescue verifier and/or deduplication job in order,
+    and write the resulting events plus stage5_stats to --output."""
     p = argparse.ArgumentParser(
         description="FiRE Stage 5 — Rescue Verifier + Semantic Deduplication")
     p.add_argument("input", nargs="?",

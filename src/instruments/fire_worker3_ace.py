@@ -1,5 +1,25 @@
 """FiRE Pipeline — Worker 3 ACE: projects the general Worker 3 trajectory to the ACE subgraph.
 
+Paper concept: this file implements Projection, the instrument-specific
+half of the paper's stage (iv) — restricting the general FiRE
+Expression (Expression Construction, from fire_worker3_general.py) down
+to the subgraph relevant to one instrument (here, the 14-item ACE
+questionnaire), before Scoring (fire_worker4_ace.py) runs on what
+survives. The optional --verify pass is an additional grounding check
+on top of Projection, not the paper's stage (iii) Verification itself
+(that already ran in Worker 1, Stage 3).
+
+Pipeline position: instrument-specific projection stage, run after the
+general Worker 3 (fire_worker3_general.py) has built the full patient
+trajectory, and before Worker 4 ACE scoring (fire_worker4_ace.py).
+Main input: a general Worker 3 output file (the full DFA/trajectory,
+all resolved states). Main output: the same trajectory restricted to
+ACE-relevant states only (states projecting to one of the 14 ACE items,
+within the 0-18 age window), plus an optional grounding-verification
+pass over each surviving record. Key assumption: projection only
+removes states/entries — it never invents or reorders the underlying
+trajectory structure built by the general Worker 3 stage.
+
 Usage:
   python3 fire_worker3_ace.py w3_general.json -o ace_out.json
   python3 fire_worker3_ace.py w3_general.json -o ace_out.json --verify --verify-llm
@@ -33,11 +53,16 @@ _REASONING_FAMILY_RE = re.compile(r'^(gpt-5|o1|o3|o4)', re.IGNORECASE)
 
 
 def _is_reasoning_model(model_name: str) -> bool:
+    """True if model_name is a reasoning-family model (GPT-5.x, o1/o3/o4)
+    that requires the alternate payload shape built in `_build_llm_payload`."""
     return bool(_REASONING_FAMILY_RE.match(model_name or ""))
 
 
 def _build_llm_payload(model_name: str, system_prompt: str, user_prompt: str,
                        max_output_tokens: int) -> dict:
+    """Build a Chat Completions payload valid for both classic chat
+    models and GPT-5-family reasoning models (which reject
+    temperature/max_tokens in favour of max_completion_tokens)."""
     payload = {
         "model": model_name,
         "response_format": {"type": "json_object"},
@@ -65,9 +90,7 @@ ACE_MIN_AGE, ACE_MAX_AGE = 0, 18
 TIER_ORDER = W3G.TIER_ORDER
 TIER_MARK  = W3G.TIER_MARK
 
-# Cluster name → ACE item number (14-item instrument).
-# Items 10 (incarceration) and 12 (caregiver death) from the original
-# 16-item instrument have been removed. Remaining items renumbered accordingly.
+# Cluster name → ACE item number for the 14-item Indian ACE instrument.
 _W3_CLUSTER_ITEM = {
     "emotional abuse":               1,
     "verbal abuse":                  1,
@@ -189,6 +212,9 @@ def project_to_ace(general_output: dict) -> tuple:
     excluded = []
     survivors = []
 
+    # Phase 1: keep only entries that map to an ACE item and fall inside
+    # the 0-18 age window (clamping an in-window onset whose end extends
+    # past 18, rather than dropping the whole entry).
     for raw_b in raw_blocks:
         b = copy.deepcopy(raw_b)
         cluster_name = b.get("cluster_name", "")
@@ -233,6 +259,8 @@ def project_to_ace(general_output: dict) -> tuple:
             e["state_code"] for e in kept_entries if e.get("state_code")))
         survivors.append((b, block_ace_items))
 
+    # Phase 2: a union group that lost enough members to drop below 2
+    # survivors is no longer a real union — demote it to a plain block.
     by_ug = defaultdict(list)
     for b, _ in survivors:
         if b.get("union_group"):
@@ -242,6 +270,7 @@ def project_to_ace(general_output: dict) -> tuple:
             for b in members:
                 b["union_group"] = None
 
+    # Phase 3: keep only feedback links whose both endpoints survived projection.
     survivor_node_ids = {b["node_id"] for b, _ in survivors}
     all_feedbacks = general_output.get("feedback_loops") or []
     ace_feedbacks = [
@@ -533,6 +562,8 @@ _ACE_MARK_RE = re.compile(r"\bACEs?\b[\s:\-]*((?:\d{1,2}\s*(?:,|/|&|and|\s)\s*)*
 
 
 def _source_marks_ace_items(source: str) -> set:
+    """Extract ACE item numbers the source text explicitly self-labels
+    with (e.g. "ACE 3, 7"), used as a cross-check signal during verification."""
     out = set()
     for m in _ACE_MARK_RE.finditer(source or ""):
         for tok in re.findall(r"\d{1,2}", m.group(1)):
@@ -543,18 +574,29 @@ def _source_marks_ace_items(source: str) -> set:
 
 
 def _verify_record_offline(rec: dict) -> dict:
-    """Deterministic, offline grounding check for one ACE record."""
+    """Deterministic, offline grounding check for one ACE record.
+
+    Runs three independent checks and returns the worst outcome: (1) did
+    Worker 2's supporting_quote actually appear in the source, (2) does
+    the record's onset/end age appear anywhere in the source text, and
+    (3) two ACE-item-specific false-positive guards — ACE-14 (parental
+    conflict) requires a sustained pattern, not a one-off incident, and
+    ACE-13 (poverty) must be family-wide hardship, not sibling
+    favouritism. Returns {"ok", "severity", "reasons"}.
+    """
     reasons = []
     severity = "ok"
 
     source = str(rec.get("source_sentence") or "").lower()
     onset  = rec.get("onset_age")
 
+    # Check 1: was Worker 2's own supporting quote actually verifiable?
     if rec.get("supporting_quote") is not None and rec.get("quote_grounded") is False:
         severity = "warn"
         reasons.append("Worker 2 supporting_quote not found in source sentence "
                        "(possible extraction from background context, not the source)")
 
+    # Check 2: does the assigned age appear anywhere in the source text?
     src_ages = set()
     for m in re.finditer(r"(\d{1,3})\s*(?:-|\u2013|\u2014|to)\s*(\d{1,3})", source):
         a, b = int(m.group(1)), int(m.group(2))
@@ -577,6 +619,7 @@ def _verify_record_offline(rec: dict) -> dict:
     hints = rec.get("ace_items_hint") or []
     hints = [int(x) for x in hints if str(x).isdigit()]
 
+    # Check 3a: ACE-14 requires a sustained conflict pattern, not a single incident.
     if 14 in hints or "parental conflict" in str(rec.get("cluster_name") or "").lower():
         conflict_words = ("fight", "fought", "argument", "argued", "arguing", "shout",
                           "yell", "screaming", "violence", "hit each other", "abused",
@@ -594,6 +637,7 @@ def _verify_record_offline(rec: dict) -> dict:
                            "SUSTAINED physical/verbal conflict between the parents "
                            "(a one-off mock/insult is not a pattern of parental conflict)")
 
+    # Check 3b: ACE-13 must be family-wide poverty, not sibling favouritism.
     if 13 in hints or "childhood poverty" in str(rec.get("cluster_name") or "").lower():
         poverty_words = ("poor", "poverty", "could not afford", "couldn't afford",
                          "no money", "public assistance", "welfare", "bare home",
@@ -640,6 +684,8 @@ ACE_VERIFY_SYSTEM = (
 
 
 def _scoring_item_for(rec: dict):
+    """Resolve the single ACE item this record will actually be scored
+    against (cluster-derived item takes priority over Worker 2's hint)."""
     it = _cluster_item(rec.get("cluster_name"))
     if it is not None:
         return it
@@ -785,6 +831,10 @@ ADJUDICATOR_SYSTEM = (
 
 def _llm_adjudicate_drop(rec: dict, item: int, fail_reason: str, api_key: str,
                          model: str = "gpt-5.1", timeout: int = 60):
+    """Ask a second, independent model call to confirm or overturn a
+    proposed drop of one ACE item, so a single verifier mistake (e.g.
+    conflating co-occurring items) doesn't unilaterally remove a valid
+    finding. Returns {"confirm_drop", "reason"} or None on failure."""
     onset = rec.get("onset_age"); end = rec.get("end_age")
     age_str = ("unknown" if onset is None
                else (str(onset) if (end is None or end == onset) else f"{onset}-{end}"))
@@ -816,6 +866,10 @@ def _llm_adjudicate_drop(rec: dict, item: int, fail_reason: str, api_key: str,
 
 
 def _merge_verdicts(offline: dict, llm: Optional[dict]) -> dict:
+    """Combine the offline heuristic verdict with the LLM verifier's
+    verdict (when available) into one final severity, taking the more
+    severe of the two unless the LLM affirmatively clears an offline
+    warn/fail as grounded, right-item, and right-age."""
     rank = {"ok": 0, "warn": 1, "fail": 2}
     off_sev = offline.get("severity", "ok")
     reasons = list(offline.get("reasons") or [])
@@ -841,6 +895,8 @@ def _merge_verdicts(offline: dict, llm: Optional[dict]) -> dict:
 
 def _format_flag(rec: dict, v: dict, dropped_items=None, adj_notes=None,
                  surviving=None, record_removed=False) -> str:
+    """Render a human-readable audit block for one flagged ACE record,
+    for the --verify report and CLI output."""
     onset, end = rec.get("onset_age"), rec.get("end_age")
     age = ("unknown" if onset is None
            else (str(onset) if (end is None or end == onset) else f"{onset}-{end}"))
@@ -867,13 +923,24 @@ def _format_flag(rec: dict, v: dict, dropped_items=None, adj_notes=None,
 
 def verify_ace_records(records: list, use_llm: bool = False, api_key: Optional[str] = None,
                        auto_drop: bool = True, adjudicate: bool = True) -> tuple:
-    """Verify ACE records for grounding. Returns (kept_records, removed_codes, flagged_report)."""
+    """Verify every ACE-projected record's grounding and drop the ones
+    that fail.
+
+    Input: flattened ACE records (from `_flatten_ace_records`) plus
+    flags controlling whether an LLM verifier and a second adjudicator
+    call are used.
+    Output: (kept_records, removed_state_codes, flagged_report) — a
+    record with a "fail" verdict has its specific failed item(s)
+    confirmed (via the adjudicator, if enabled) before being dropped
+    entirely or just narrowed to its surviving items.
+    """
     def _ints(xs):
         return [int(x) for x in (xs or []) if str(x).isdigit()]
 
     kept, flagged, removed_codes = [], [], set()
     llm_calls = 0
     annotated = []
+    # Phase 1: run offline (and optionally LLM) verification on every record.
     for r in records:
         offline = _verify_record_offline(r)
         llm = None
@@ -886,6 +953,9 @@ def verify_ace_records(records: list, use_llm: bool = False, api_key: Optional[s
     if use_llm:
         logging.info("LLM verifier: %d/%d records checked via LLM", llm_calls, len(records))
 
+    # Phase 2: for every non-"ok" record, adjudicate which specific
+    # tagged item(s) actually fail, then either narrow the record to its
+    # surviving items or drop it entirely if nothing survives.
     for r, v in annotated:
         if v["severity"] == "ok":
             kept.append(r)
@@ -955,6 +1025,9 @@ def verify_ace_records(records: list, use_llm: bool = False, api_key: Optional[s
 # ─────────────────────────────────────────────────────────────
 
 def selftest() -> bool:
+    """Offline regression guard: exercises ACE-relevance/age-window
+    projection (including out-of-window and non-ACE exclusions) and
+    reasoning-model payload construction against a synthetic trajectory."""
     ok = True
 
     def check(cond, name):
@@ -1030,6 +1103,10 @@ def selftest() -> bool:
 # ─────────────────────────────────────────────────────────────
 
 def main() -> None:
+    """CLI entry point: load a general Worker 3 output file, project it
+    to the ACE subgraph, optionally run grounding verification (dropping
+    or narrowing records that fail), rebuild the ACE expression from
+    whatever survives, and write the result to --output."""
     parser = argparse.ArgumentParser(
         description="FiRE Worker 3 ACE — projects the general Worker 3 trajectory "
                     "to the ACE subgraph (does not rebuild the graph)")

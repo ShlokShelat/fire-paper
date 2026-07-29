@@ -1,6 +1,15 @@
 """
 FiRE Pipeline — Worker 1, Stage 4: Explicit Evidence Verifier
 ================================================================
+Paper concept: a supplementary pass beyond Verification (stage iii) —
+it re-checks events Stage 3 already marked CONFIRMED, using different
+mechanics and covering 3 of the paper's 4 axes. It is NOT the paper's
+stage (iii) itself and is not described in the manuscript; see the full
+discussion below before treating it as such.
+
+Pipeline position: Worker 1's optional fourth stage, run after Stage 3
+(fire_stage2_3_single_model.py) and before Worker 2 (fire_worker2.py).
+
 IMPORTANT NOTE ON PAPER ALIGNMENT (read before using this module)
 --------------------------------------------------------------
 The paper describes exactly four FiRE stages: (i) preprocessing into
@@ -34,6 +43,15 @@ patching code:
       of the four-axis verification the paper describes.
 This file does not decide that for you — it fixes bugs and adds
 consistency features under whichever framing you pick.
+
+Main input: a Worker 1 output file (events + patient_id), optionally
+paired with Stage 1's tagged-sentence list for extra context sentences.
+Main output: the same events, in place, with `stage4_flags`,
+`stage4_passed`, and (for flagged events) a downgraded confidence/status,
+written to a new JSON file so the pre-Stage-4 file is left untouched.
+Key assumption: this pass only ever downgrades or flags events already
+marked CONFIRMED by Stage 3 — it never marks something CONFIRMED that
+Stage 3 did not.
 """
 
 import argparse
@@ -71,6 +89,7 @@ _PERSON_NORMALISE = {
 
 
 def _person_in_text(person: str, text: str) -> bool:
+    """Word-boundary-safe check for whether `person` is mentioned in `text`."""
     norm = _PERSON_NORMALISE.get(person, person)
     if "-" in norm:
         return norm in text
@@ -78,6 +97,8 @@ def _person_in_text(person: str, text: str) -> bool:
 
 
 def _source_anchors_person(person: str, source: str, context: str) -> bool:
+    """True if a relational trigger term (e.g. "mil") in the source or
+    context implies `person` even without naming them directly."""
     person_l = person.lower()
     all_text = (source + " " + context).lower()
     for trigger, anchored in PERSON_ANCHOR_EXPANSIONS.items():
@@ -120,6 +141,10 @@ def _looks_like_header(before_text: str, max_len: int) -> bool:
 
 
 def _strip_section_header(source: str, subsection: str = "") -> str:
+    """Remove a leading section-heading label from `source` (using the
+    known `subsection` name if given, else a heuristic colon-split) so
+    similarity/anchoring checks compare against actual sentence content,
+    not the heading that precedes it."""
     s = source.strip()
     if not s:
         return s
@@ -180,6 +205,9 @@ _CLINICAL_FAMILIES = {
 
 
 def _load_sim_model() -> str:
+    """Lazily load the sentence-embedding model for semantic grounding
+    checks (offline cache first, then online, else fall back to the
+    lexical containment score); caches the resolved backend name."""
     global _sim_model, _sim_backend
     if _sim_backend is not None:
         return _sim_backend
@@ -234,6 +262,9 @@ def _cosine_sim(text_a: str, text_b: str) -> Optional[float]:
 
 
 def _containment_sim(event_text: str, source_text: str) -> float:
+    """Lexical-overlap fallback for semantic similarity when no embedding
+    model is available: fraction of event_text's (family-expanded)
+    content words also present in source_text."""
     def expand(words):
         expanded = set(words)
         for w in list(words):
@@ -254,6 +285,11 @@ def _check_semantic_grounding(
     context:      str,
     exp_type:     str,
 ) -> Optional[str]:
+    """Check whether `event` is semantically close enough to its cleaned
+    source sentence (optionally widened with context) to count as
+    grounded. Skipped for symptom/belief events, which do not need a
+    literal source match. Returns a flag string if the similarity score
+    falls below threshold, else None."""
     if exp_type in ("symptom", "belief"):
         return None
 
@@ -337,6 +373,8 @@ _ADJACENT_STAGE_PAIRS = {
 
 
 def _extract_age_from_context(age_context: Optional[str]) -> Optional[tuple]:
+    """Parse an age_context string (single age or "min-max" range) into
+    an (age_min, age_max) tuple, or None if no numeric age is present."""
     if not age_context:
         return None
     cleaned = re.sub(r'[~\u2248]', '', str(age_context)).strip()
@@ -380,6 +418,9 @@ _STAGE4_FLAG_TO_MODE = {
 
 
 def structure_stage4_flags(flags) -> list:
+    """Convert raw "CODE: detail" Stage 4 flag strings into structured
+    {axis, code, error_mode, detail} dicts using the same E1-E6 taxonomy
+    vocabulary as Stage 3's `structure_flags`."""
     out = []
     for f in flags or []:
         code = f.split(":", 1)[0].split(" ", 1)[0].strip()
@@ -390,8 +431,25 @@ def structure_stage4_flags(flags) -> list:
 
 
 def stage4_verify(events: list, stage1_data: Optional[list] = None) -> list:
+    """Run this module's second-pass audit over every CONFIRMED event.
+
+    Input: the event list from a Worker 1 output file, plus optional
+    Stage 1 data used to reconstruct nearby same-heading sentences as
+    extra context. Events are mutated in place.
+    Output: the same list, each event annotated with `stage4_flags`,
+    `stage4_flags_structured`, and `stage4_passed`; events with a HIGH
+    or MEDIUM-severity flag are downgraded from CONFIRMED to TENTATIVE
+    and routed to human review.
+    Checks three axes per event: entity anchoring (are named persons
+    actually present in the source/context), semantic grounding (does
+    the event text plausibly follow from the source), and temporal
+    consistency (does the assigned life stage contradict age evidence).
+    """
     _load_sim_model()
 
+    # Rebuild each event's local Stage 1 neighbourhood (same heading,
+    # nearby lines) so the entity/semantic checks below have the same
+    # surrounding context Stage 2/3 saw, not just the bare source sentence.
     line_context: dict = {}
     if stage1_data:
         def _extract_prefix(text: str) -> str:
@@ -444,6 +502,8 @@ def stage4_verify(events: list, stage1_data: Optional[list] = None) -> list:
         context_lower    = " ".join(ctx_before + ctx_after).lower()
         source_clean     = _strip_section_header(source, subsection)
 
+        # Check 1: entity anchoring — every named person must appear (or
+        # be culturally implied) in the source, its heading, or context.
         if exp_type != "belief":
             for person in (ev.get("persons_involved") or []):
                 person_l = person.lower().strip()
@@ -460,12 +520,16 @@ def stage4_verify(events: list, stage1_data: Optional[list] = None) -> list:
                     continue
                 flags.append(("HIGH", "ENTITY_NOT_ANCHORED: '%s'" % person))
 
+        # Check 2: semantic grounding — the synthesized event text must
+        # stay close to what the (heading-stripped) source actually says.
         sem_flag = _check_semantic_grounding(
             event_text, source_clean, context_lower, exp_type
         )
         if sem_flag:
             flags.append(("MEDIUM", sem_flag))
 
+        # Check 3: temporal consistency — the assigned life stage must
+        # not contradict explicit age evidence or non-adjacent-stage cues.
         life_stage = ev.get("life_stage", "unknown")
         if life_stage and life_stage != "unknown":
             temporal_ok   = True
@@ -536,6 +600,8 @@ def stage4_verify(events: list, stage1_data: Optional[list] = None) -> list:
 
 
 def atomic_write_json(path: str, obj) -> None:
+    """Write JSON via a temp-file-then-rename so a crash mid-write never
+    leaves a partially-written output file."""
     d = os.path.dirname(os.path.abspath(path)) or "."
     fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
     try:
@@ -600,6 +666,9 @@ def selftest() -> bool:
 
 
 def main():
+    """CLI entry point: load a Worker 1 output file (and optional Stage 1
+    context), run `stage4_verify`, print a before/after status summary,
+    and write the annotated events to a new JSON file."""
     parser = argparse.ArgumentParser(
         description="FiRE Worker 1 - Stage 4: Explicit Evidence Verifier"
     )

@@ -1,9 +1,23 @@
 """
 FiRE Pipeline — Worker 1, Stage 1: Sentence Tagger
 =====================================================
-Input  : Flat normalized text produced by fire_preprocessor.py
-         Every line is already self-contained and context-prefixed.
-Output : List of tagged sentence objects ready for Stage 2
+Paper concept: still part of the paper's "preprocessing into events"
+stage (i) — a deterministic triage pass that decides which lines are
+even candidates for Event Extraction, run before the LLM-driven Event
+Extraction step in Stage 2. It performs no extraction itself.
+
+Pipeline position: second stage of the pipeline, run immediately after
+fire_preprocessor.py and before Stage 2/3 (LLM event extraction). Stage 1
+is purely rule-based (no LLM calls) and exists to cheaply pre-tag and
+pre-filter sentences so the LLM-driven stages only see candidate
+clinical content, not administrative or purely descriptive lines.
+
+Main input: flat normalized text produced by fire_preprocessor.py —
+every line is already self-contained and context-prefixed.
+Main output: list of tagged sentence objects ready for Stage 2.
+Key assumption: classification is purely syntactic (word lists and
+regexes over one line at a time) — it never needs to look at
+neighbouring lines, since fire_preprocessor.py already resolved context.
 
 What this stage does:
   1. Detects line type: TIMELINE / DIRECT_QUOTE / NARRATIVE
@@ -197,6 +211,10 @@ TEMPORAL_PATTERNS = [
 
 @dataclass
 class TaggedSentence:
+    """One Stage 1 output record: a sentence plus the metadata (type,
+    confidence, temporal/hedging/clinical flags) Stage 2/3 uses to
+    decide whether and how to attempt LLM-based event extraction on it.
+    """
     sentence:         str
     source_type:      str
     confidence_tag:   str
@@ -209,6 +227,7 @@ class TaggedSentence:
     line_number:      int           = 0
 
     def to_dict(self):
+        """Serialize this record to a plain dict for JSON output."""
         return asdict(self)
 
 
@@ -230,6 +249,9 @@ def strip_age_bracket(line: str) -> str:
 
 
 def extract_temporal_markers(text: str) -> list:
+    """Find all age/period references in text via TEMPORAL_PATTERNS.
+    Returns a list of {"type", "value"} dicts, deduplicated by value, in
+    order of first appearance."""
     found = []
     text_lower = text.lower()
     seen = set()
@@ -243,16 +265,23 @@ def extract_temporal_markers(text: str) -> list:
 
 
 def extract_hedging_flags(text: str) -> list:
+    """Return which HEDGING_WORDS (uncertainty language) appear in text."""
     text_lower = text.lower()
     return [w for w in HEDGING_WORDS if w in text_lower]
 
 
 def extract_clinical_flags(text: str) -> list:
+    """Return which CLINICAL_OBSERVATION_MARKERS (therapist-commentary
+    phrasing, as opposed to patient-reported events) appear in text."""
     text_lower = text.lower()
     return [m for m in CLINICAL_OBSERVATION_MARKERS if m in text_lower]
 
 
 def is_exclusion_candidate(text: str) -> tuple:
+    """Check whether a sentence should be excluded before reaching Stage 2
+    because it is pure clinical commentary or abstract belief/schema
+    language rather than a groundable patient event.
+    Returns (should_exclude: bool, reason: str | None)."""
     text_lower = text.lower()
     for pattern in EXCLUSION_PURE_CLINICAL_PATTERNS:
         if re.search(pattern, text_lower):
@@ -427,6 +456,11 @@ def process_stage1(flat_text: str) -> list:
     """
     Main Stage 1 processor.
 
+    Input: flat_text, the preprocessor's flattened output (one
+    context-prefixed line per string, joined with newlines).
+    Output: list of TaggedSentence dicts (via `.to_dict()`), one per
+    (sub-)sentence, ready to be filtered with `filter_for_stage2`.
+
     Reads flat file line by line. Each line is already enriched
     with context from the preprocessor. Stage 1 only needs to:
       1. Detect line type
@@ -545,6 +579,9 @@ def filter_for_stage2(results: list) -> list:
 
 
 def summary_stats(results: list) -> dict:
+    """Aggregate counts (by confidence, source type, exclusion reason)
+    over a Stage 1 result list, for the CLI summary and quick sanity
+    checks on a run."""
     from collections import Counter
     tags  = Counter(r["confidence_tag"]  for r in results)
     types = Counter(r["source_type"]     for r in results)

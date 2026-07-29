@@ -1,9 +1,28 @@
 """
 FiRE Pipeline — Worker 3: FiRE Expression Builder
 
+Paper concept: this file implements the trajectory-assembly half of the
+paper's stage (iv), i.e. Expression Construction — turning the resolved
+state-space codes from stage (ii) into the symbolic FiRE Expression
+(the paper's algebra of union `+`, concatenation `.`, self-loop
+exponents, and feedback) via the deterministic finite automaton built
+here. Instrument-specific Projection and Scoring are separate,
+downstream stages (see fire_worker3_ace.py / fire_worker4_ace.py).
+
+Pipeline position: run after Worker 2 (fire_worker2.py) has resolved
+events to state-space codes, and before an instrument-specific
+projection (e.g. fire_worker3_ace.py) or a baseline comparison.
 Builds the complete patient FiRE Expression (all resolved clinical states)
 using a deterministic finite automaton. This is the general Worker 3 file,
 generalised to run over all clinical states without instrument-specific gating.
+
+Main input: a Worker 2 output file (events with resolved state_codes,
+onset/end ages). Main output: a FiRE Expression string plus the DFA
+(nodes/edges) it was traversed from, written to the --output JSON.
+Key assumption: state resolution (mapping vs. new-state creation) is
+already final by this point — this stage only assembles temporal
+structure (tiers, unions, self-loops, feedback) from already-resolved
+states; it does not re-decide what a state maps to.
 
 Usage:
   python3 fire_worker3_general.py patient01_final.json --output patient01_w3.json
@@ -137,6 +156,9 @@ def age_to_tier(age: int) -> str:
 # ─────────────────────────────────────────────────────────────
 
 def infer_frequency(text: str) -> str:
+    """Classify how often an event recurred (single/recurring/repeated/
+    throughout) from its combined source+event text, via keyword cues.
+    Feeds `component2_exponent`'s self-loop/repetition decision."""
     t = text.lower()
     if any(w in t for w in [
         "throughout", "entire childhood", "all through", "whole childhood",
@@ -414,7 +436,20 @@ def build_interval_timeline(records: list) -> list:
 
 
 def build_union_aware_tiers(working: list, alphabet_map: dict) -> "OrderedDict":
-    """Resolve windows, place no-age states at the end sequentially."""
+    """Assemble the ordered, tier-grouped timeline the DFA is built from.
+
+    Input: flat resolved-state records and the cluster->symbol map.
+    Output: an OrderedDict of tier -> list of timeline blocks (each a
+    union group of co-occurring states, or a single state), in
+    TIER_ORDER, ready for `component35_build_dfa`.
+    Runs in three phases: resolve each record's onset/end span (placing
+    undated states sequentially after the latest known age), cut the
+    timeline into atomic intervals via `build_interval_timeline`, then
+    group intervals into per-tier union blocks.
+    """
+    # Phase 1: resolve spans; states with no age evidence are placed
+    # sequentially after the latest known age so they still get a
+    # deterministic position in the timeline.
     no_age = []
     for r in working:
         r["cluster"] = alphabet_map.get(r["cluster_name"], r["cluster_name"][:4])
@@ -434,8 +469,11 @@ def build_union_aware_tiers(working: list, alphabet_map: dict) -> "OrderedDict":
         r["_has_real_span"] = False
         r["_no_age"] = True
 
+    # Phase 2: cut the resolved spans into atomic, non-overlapping intervals.
     segments = build_interval_timeline(working)
 
+    # Phase 3: group each interval's co-occurring states into a tier-scoped
+    # timeline block, marking multi-state intervals as union groups.
     tiers: "OrderedDict[str, list]" = OrderedDict()
     union_counter = 0
     for seg in segments:
@@ -470,6 +508,8 @@ def build_union_aware_tiers(working: list, alphabet_map: dict) -> "OrderedDict":
 # ─────────────────────────────────────────────────────────────
 
 def _explicit_numeric(text: str) -> Optional[int]:
+    """Extract the largest explicit occurrence count in text (e.g. "three
+    times", "4-5 occasions"), or None if none is stated."""
     t, best = text.lower(), None
     for m in re.finditer(r"(\d+)\s*(?:[-–]|to)\s*(\d+)\s*(?:occasions?|times?|incidents?)", t):
         best = max(best or 0, int(m.group(2)))
@@ -519,6 +559,7 @@ def component2_exponent(block: dict) -> dict:
 # ─────────────────────────────────────────────────────────────
 
 def _block_text(block: dict) -> str:
+    """Concatenate a timeline block's entries' source+event text for keyword matching."""
     return " ".join((e.get("source_sentence") or "") + " " + (e.get("event") or "")
                     for e in block["entries"]).lower()
 
@@ -534,10 +575,15 @@ def detect_marker_union(block_a: dict, block_b: dict) -> bool:
 # ─────────────────────────────────────────────────────────────
 
 def _has_reactivation_language(block: dict) -> bool:
+    """True if the block's text contains language implying an earlier
+    experience was re-triggered (see REACTIVATION_LANGUAGE)."""
     return any(p in _block_text(block) for p in REACTIVATION_LANGUAGE)
 
 
 def _reactivation_reference(block: dict) -> Optional[str]:
+    """Extract what a reactivation block's text says was reactivated
+    (e.g. a relation or "childhood"), used to target the correct earlier
+    block as the feedback source in `detect_feedbacks`."""
     text = _block_text(block)
     patterns = [
         r"remind(?:ed|s)? (?:him|her|them) of (?:the |her |his |their )?([a-z][a-z\s-]{2,40})",
@@ -661,13 +707,19 @@ def detect_feedbacks(flat: list) -> list:
 # ─────────────────────────────────────────────────────────────
 
 class DFA:
+    """Minimal deterministic finite automaton container: a node name list
+    and a labeled, typed edge list (sequential/branch/join/self_loop/
+    feedback_back/feedback_return/terminal), built by
+    `component35_build_dfa` and consumed by `component4_traverse`."""
     def __init__(self):
         self.nodes = ["q_born", "q_end"]
         self.edges = []
     def add_node(self, name):
+        """Register a node name once (no-op if already present)."""
         if name not in self.nodes:
             self.nodes.append(name)
     def add_edge(self, src, dst, label, kind):
+        """Append one labeled, typed edge to the automaton."""
         self.edges.append({"src": src, "dst": dst, "label": label, "kind": kind})
 
 
@@ -680,6 +732,9 @@ def node_name(block: dict) -> str:
 
 
 def _flatten_ordered(tiers: "OrderedDict") -> list:
+    """Flatten the tier-grouped timeline into one chronologically ordered
+    list of blocks, in TIER_ORDER then by interval/line number — the
+    traversal order the DFA is built and read in."""
     flat = []
     for tier in TIER_ORDER:
         if tier not in tiers:
@@ -691,7 +746,16 @@ def _flatten_ordered(tiers: "OrderedDict") -> list:
 
 
 def component35_build_dfa(tiers, exponents, feedbacks) -> DFA:
-    """Build DFA with union groups, feedback edges, and self-loops."""
+    """Build the patient's full DFA from the tiered timeline.
+
+    Input: tiers (from `build_union_aware_tiers`), each block's
+    self-loop exponent (from `component2_exponent`), and detected
+    feedback links (from `detect_feedbacks`).
+    Output: a DFA whose edge sequence, once traversed, yields the FiRE
+    Expression: union-group blocks branch from a shared predecessor and
+    rejoin at an epsilon join node, feedback pairs get a back-edge and a
+    return-edge, and each block's self-loop count follows its exponent.
+    """
     dfa = DFA()
     fb_by_later = defaultdict(list)
     for f in feedbacks:
@@ -760,6 +824,10 @@ def component35_build_dfa(tiers, exponents, feedbacks) -> DFA:
 # ─────────────────────────────────────────────────────────────
 
 def component4_traverse(dfa: DFA) -> list:
+    """Walk the DFA from q_born to q_end, taking each unused outgoing
+    edge once, to produce the ordered (label, kind) trace that
+    `component5_build_string` renders into the FiRE Expression string.
+    A guard counter prevents an unexpected cycle from looping forever."""
     by_src = defaultdict(list)
     for e in dfa.edges:
         by_src[e["src"]].append(e)
@@ -787,6 +855,7 @@ def component4_traverse(dfa: DFA) -> list:
 # ─────────────────────────────────────────────────────────────
 
 def _fmt_exp(sym: str, exp: int) -> str:
+    """Render a symbol with its exponent (omitted when exponent is 1)."""
     return sym if exp <= 1 else "%s^%d" % (sym, exp)
 
 
@@ -829,6 +898,14 @@ def component5_build_string(tiers, exponents, feedbacks) -> str:
 
 
 def component5_validate(fe, tiers, exponents, feedbacks) -> dict:
+    """Run consistency checks over the built expression/DFA: every symbol
+    has a resolved state (alphabet_coverage), each block's tier matches
+    its interval's derived tier (tier_consistency), every feedback
+    target actually precedes its trigger (feedback_integrity), no
+    cluster's states are uniformly low-confidence (confidence_floor,
+    informational only), and at least two distinct symbols exist
+    (minimum_events). Returns a dict of named check results used both
+    for `human_review_flags` and for the confidence-asterisk pass."""
     flat = _flatten_ordered(tiers)
     checks = {}
     empty = [b["cluster"] for b in flat if not b["codes"]]
@@ -865,6 +942,8 @@ def component5_validate(fe, tiers, exponents, feedbacks) -> dict:
 
 
 def apply_confidence_asterisks(fe: str, flagged: list) -> str:
+    """Mark every occurrence of a low-confidence symbol in the rendered
+    expression string with a trailing "*", without altering its exponent."""
     for sym in flagged:
         fe = re.sub(r"(?<![\w*])%s(\^\d+)?(?![\w*])" % re.escape(sym),
                     lambda m: m.group(0) + "*", fe)
@@ -876,6 +955,7 @@ def apply_confidence_asterisks(fe: str, flagged: list) -> str:
 # ─────────────────────────────────────────────────────────────
 
 def _fmt_new_states(records: list) -> list:
+    """Format newly created (provisional) states for the output report."""
     return [{
         "state_code": r["state_code"], "cluster_name": r["cluster_name"],
         "event": r["event"], "source_sentence": r["source_sentence"],
@@ -886,6 +966,7 @@ def _fmt_new_states(records: list) -> list:
 
 
 def _fmt_unmatched(records: list) -> list:
+    """Format sub-events that never resolved to a state, for the output report."""
     return [{"event": r["event"], "reason": r["unmatched_reason"],
              "life_stage": r["life_stage"], "source_sentence": r["source_sentence"],
              "sub_status": r["sub_status"]}
@@ -893,6 +974,7 @@ def _fmt_unmatched(records: list) -> list:
 
 
 def _fmt_not_adverse(records: list) -> list:
+    """Format sub-events explicitly ruled NOT_ADVERSE, for the output report."""
     return [{"event": r["event"], "reason": r["not_adverse_reason"]}
             for r in records if r["match_type"] == "NOT_ADVERSE"]
 
@@ -903,6 +985,18 @@ def _fmt_not_adverse(records: list) -> list:
 
 def build_expression(resolved_records, new_state_records, other_records,
                      alphabet_map, include_new_states=False) -> dict:
+    """Top-level assembly: turn parsed Worker 2 records into the full
+    FiRE Expression output.
+
+    Input: resolved/new-state/other records from `parse_worker2_output`
+    and the cluster->symbol alphabet map.
+    Output: a dict with the expression string, its DFA, per-symbol
+    inventory, feedback/simultaneity logs, validation results, and
+    human-review flags — the complete Worker 3 output record.
+    Pipeline: build the tiered timeline, detect simultaneity unions and
+    feedback links, construct and traverse the DFA, render the
+    expression string, then validate it and assemble the reporting dict.
+    """
     working = list(resolved_records)
     if include_new_states:
         working += list(new_state_records)
@@ -926,6 +1020,9 @@ def build_expression(resolved_records, new_state_records, other_records,
     exponents = {id(b): component2_exponent(b)
                  for blocks in tiers.values() for b in blocks}
 
+    # Explicit-marker union pass: force adjacent same-tier blocks into a
+    # union group when the text says they co-occurred, even if their
+    # intervals didn't already overlap enough to be grouped by age alone.
     union_counter = sum(1 for blocks in tiers.values() for b in blocks
                         if b.get("union_group")) + 100
     sim_log = []
@@ -960,6 +1057,8 @@ def build_expression(resolved_records, new_state_records, other_records,
                     "signals": ["age_overlap"],
                 })
 
+    # Feedback detection, then DFA construction/traversal, then rendering
+    # the final expression string from the same tiers/exponents/feedbacks.
     flat = _flatten_ordered(tiers)
     feedbacks = detect_feedbacks(flat)
 
@@ -1093,6 +1192,7 @@ def build_expression(resolved_records, new_state_records, other_records,
 
 def _mk_record(state_code, cluster_name, onset, end, event, exp_type="event",
                is_ongoing=False, sub_id=None, life_stage="childhood"):
+    """Build a minimal synthetic resolved-state record for self-test fixtures."""
     return {
         "state_code": state_code, "event_uid": sub_id or state_code,
         "cluster_name": cluster_name, "cluster": "",
@@ -1115,6 +1215,9 @@ def _mk_record(state_code, cluster_name, onset, end, event, exp_type="event",
 
 
 def selftest() -> bool:
+    """Offline regression guard: exercises union grouping, self-loop
+    exponents (language- and span-based), feedback-driven exponent
+    boosts, and tier concatenation against small synthetic timelines."""
     ok = True
 
     def check(cond, name):
@@ -1206,6 +1309,10 @@ def selftest() -> bool:
 # ─────────────────────────────────────────────────────────────
 
 def main() -> None:
+    """CLI entry point: load a Worker 2 output file, parse it into
+    resolved/new-state/other records, assign the cluster alphabet, build
+    the FiRE Expression via `build_expression`, print a summary, and
+    write the full result to --output."""
     parser = argparse.ArgumentParser(description="FiRE Worker 3 — FiRE Expression Builder")
     parser.add_argument("input", nargs="?", help="Worker 2 output JSON")
     parser.add_argument("--output", "-o", default="worker3_output.json",
@@ -1358,6 +1465,7 @@ def generate_interactive_html(result, patient_id, output_path) -> None:
     level["q_end"] = len(order) + 1
 
     def tier_of(node_id):
+        """Extract a node's tier-marker letter from its generated node_name."""
         m = re.match(r"q_.+_([CTAMN])_\d+_\d+$", node_id)
         return m.group(1) if m else None
 

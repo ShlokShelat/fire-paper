@@ -1,43 +1,91 @@
 # Dependencies for the FiRE pipeline (src/) and baselines.
 #
+# Requires Python 3.10+ (src/state_space/fire_worker2.py uses the
+# `X | None` union type-hint syntax introduced in that release).
+#
 # Version pins are intentionally omitted below; pin them after installing
 # and running the pipeline in your own environment, then freeze with:
 #   pip freeze > requirements.lock.txt
 
-requests
-# Used for direct HTTP calls to model APIs (fire_stage2_3_single_model.py,
-# fire_stage5.py, fire_worker2.py, fire_worker3_ace.py, and the baseline
-# scripts all build request headers manually, e.g.
-# "Authorization": "Bearer " + api_key).
+aiohttp
+# Async HTTP client used for concurrent model calls in
+# fire_stage2_3_single_model.py (Stage 2/3) and fire_worker2.py (Worker 2).
+# All other scripts that make API calls (fire_stage5.py,
+# fire_worker3_ace.py, and both baseline scripts) use only the
+# standard-library urllib.request and need no HTTP package of their own.
 
-openai
-# Client for GPT-5.1 calls used throughout the pipeline (extraction,
-# Worker 2's Oracle/Judge, Stage 5's rescue verifier) and by one of the
-# three frontier-model baselines. See technical_appendix.pdf, Section 9
-# ("Same-model discipline").
+spacy
+# Sentence splitting in fire_stage1.py. Only spacy.blank("en") plus the
+# built-in "sentencizer" component are used, so no model download
+# (e.g. en_core_web_sm) is required beyond the base package.
 
 sentence-transformers
 # all-MiniLM-L6-v2, used for semantic state-space matching and Stage 4's
 # grounding check (technical_appendix.pdf, Sections 3.2 and 9.2). Pulls in
-# torch as a dependency; the reported evaluation ran CPU-only.
+# torch as a dependency; the reported evaluation ran CPU-only, and no
+# code in this repo requests a GPU/CUDA device explicitly, so CPU-only
+# torch is sufficient (a CUDA build will also work if present, but is
+# not required). The first script run that loads this model downloads
+# the ~90MB all-MiniLM-L6-v2 checkpoint from the Hugging Face Hub, so
+# network access is needed once; later runs use the local cache.
+# fire_worker2.py imports this package unconditionally (no fallback);
+# fire_stage2_3_single_model.py, fire_stage4.py, and fire_stage5.py use
+# it only as an optional similarity upgrade and fall back to a lexical
+# (Jaccard) comparison if it is not importable.
 
-python-dotenv
-# For loading a local .env file into os.environ during development. All
-# API keys are read via os.environ.get(...) rather than hardcoded; if your
-# setup sources keys another way (shell profile, secrets manager), this
-# package is not required.
+numpy
+# Used directly in fire_stage2_3_single_model.py's NLI-entailment softmax
+# calculation (_nli_entailment_score). Already installed transitively as
+# a torch/sentence-transformers dependency, but listed explicitly since
+# it is imported by name in this repo's own code, not only by a
+# dependency of a dependency. That import is wrapped in a try/except, so
+# its absence would not crash the pipeline — it would just disable that
+# one similarity-upgrade path.
+
+# --- Listed in an earlier draft of this file but NOT imported anywhere
+#     in src/ as of this revision (verified by grepping every import in
+#     src/*/*.py) — left here, commented out, only so anyone extending
+#     the pipeline to use an official vendor SDK or .env loading knows
+#     what to add back rather than guessing:
+#
+# requests
+#   All HTTP calls in this repo go through aiohttp (above) or the
+#   standard-library urllib.request; nothing imports `requests`.
+# openai
+#   OpenAI-endpoint calls are hand-built HTTP requests to
+#   https://api.openai.com/v1/chat/completions, not the openai SDK.
+# python-dotenv
+#   No script calls load_dotenv(). API keys are read directly via
+#   os.environ.get(...); add `python-dotenv` and call load_dotenv()
+#   yourself before running if you want local .env file support.
 
 # google-generativeai
 # For Gemini 3.1 Pro baseline calls. Uncomment if the baseline harness
-# uses the SDK directly rather than raw HTTP via `requests`.
+# uses the SDK directly rather than the raw HTTP (urllib.request) it
+# uses today — check baselines/ for which path the harness actually uses.
 
 # xAI/Grok client
-# For the grok-4.20-0309-reasoning baseline. xAI's API is OpenAI-compatible,
-# so the `openai` client (pointed at xAI's endpoint) or `requests` above
-# may cover this without an additional package — check baselines/ for
-# which path the harness actually uses.
+# For the grok-4.20-0309-reasoning baseline. xAI's API is OpenAI-compatible;
+# the baseline scripts already call it with a plain urllib.request POST,
+# so no additional package is required unless you replace that call with
+# a vendor SDK.
 
 # Setup note: API keys are read from environment variables, never
 # hardcoded. Check the constant near the top of each src/ file
 # (API_KEY_ENV, RESCUE_API_KEY_ENV, or the per-model key_env list in the
 # baseline scripts) for the exact variable name each script expects.
+
+# OS note: src/state_space/fire_worker2.py uses the POSIX-only `fcntl`
+# module for cross-process file locking during concurrent runs, guarded
+# by a try/except ImportError (fcntl = None on Windows). The script still
+# runs on Windows, but without that lock — safe for a single process,
+# not guaranteed safe if you run multiple fire_worker2.py processes
+# against the same state-space file concurrently on Windows.
+#
+# OS note: src/preprocessing/fire_preprocessor.py derives its patient_id
+# from the input path with a hardcoded split("/")[-1]. Pass a
+# forward-slash path (e.g. data/notes.txt, which also works on Windows)
+# to get a clean patient_id; a backslash-separated Windows path (e.g.
+# data\notes.txt) will not be split, so the id will include the
+# directory prefix. This only affects the cosmetic patient_id label
+# used for output filenames, not which file is actually read or written.

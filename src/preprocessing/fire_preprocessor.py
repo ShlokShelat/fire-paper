@@ -1,11 +1,30 @@
 """
 FiRE Pipeline — Preprocessor
 =================================
-Converts raw [REDACTED: clinical partner site] digitized consultation notes into a
-normalized flat format where every line is self-contained and
-carries its full context as a prefix.
+Paper concept: this is the rule-based normalization sub-step of the
+paper's "preprocessing into events" stage (i) — it runs before, and
+feeds, Event Extraction (Stage 1 tagging, then Stage 2's LLM
+extraction); it is not itself Event Extraction.
 
-Design principles:
+Pipeline position: the first stage of the FiRE pipeline, run before any
+LLM-driven extraction. Consumes raw, semi-structured clinical notes and
+produces the flat, self-contained line format that every later stage
+(Stage 1 sentence tagging onward) depends on. It converts raw
+[REDACTED: clinical partner site] digitized consultation notes into a
+normalized flat format where every line is self-contained and carries
+its full context (subsection, narrative label, and age) as a prefix, so
+downstream stages never need to look at neighbouring lines to interpret
+one line correctly.
+
+Main input: raw note text (one patient file), read as a single string.
+Main output: a `NormalizedNote` (list of `NormalizedLine` records) that
+can be serialized to JSON or flattened to plain text for the next
+pipeline stage.
+Key assumption: every later stage trusts that no content token was
+dropped and that context prefixes are already fully resolved, per the
+design principles below.
+
+Design principles (the assumptions later stages rely on):
   - Zero hallucination: only moves and prefixes existing text
   - Zero removal:       every content token appears in output
   - Deterministic:      same input always produces same output
@@ -148,6 +167,17 @@ DIRECT_QUOTE_RE = re.compile(r'["\u201c\u201d\u2018\u2019]')
 # ─────────────────────────────────────────────────────────────
 
 def classify_line(line: str, in_section: int) -> str:
+    """Classify a single stripped line into a structural role.
+
+    Inputs: the raw line text and the note section (1/2/3) it falls in,
+    since some classifications (age markers, timeline rows) only apply
+    inside Section 3.
+    Output: a line-class tag string (e.g. "SECTION_HEADER", "PERSON_HEADER",
+    "CONTENT") consumed by `ContextStateMachine.process_line` to decide
+    how the line affects context state and whether it is kept.
+    Assumption: classification is purely syntactic (word sets and
+    regexes) and never inspects surrounding lines.
+    """
     stripped = line.strip()
     lower    = stripped.lower()
 
@@ -199,6 +229,14 @@ def classify_line(line: str, in_section: int) -> str:
 
 @dataclass
 class NormalizedLine:
+    """One output line of the preprocessor.
+
+    `raw_text` is the original line content; `enriched_text` is the same
+    content with its resolved context prefix (subsection/narrative label
+    and age) attached, and is what downstream stages read. `discard`
+    marks structural lines (headers, blank lines) that carry no
+    extractable content of their own.
+    """
     raw_text:      str
     enriched_text: str
     line_number:   int
@@ -209,20 +247,29 @@ class NormalizedLine:
     discard:       bool = False
 
     def to_dict(self):
+        """Serialize this line to a plain dict for JSON output."""
         return asdict(self)
 
 
 @dataclass
 class NormalizedNote:
+    """The full preprocessed output for one patient note.
+
+    Wraps the ordered list of `NormalizedLine` records plus the result
+    of the zero-token-loss `validate()` check, so callers can tell
+    whether the note was preprocessed cleanly before passing it on.
+    """
     lines:          list
     patient_id:     str  = ""
     validation_ok:  bool = True
     validation_msg: str  = ""
 
     def content_lines(self):
+        """Return only the lines kept for downstream extraction (discard=False)."""
         return [l for l in self.lines if not l.discard]
 
     def to_dict(self):
+        """Serialize the full note (including discarded lines) to a plain dict for JSON output."""
         return {
             "patient_id":     self.patient_id,
             "validation_ok":  self.validation_ok,
@@ -249,6 +296,7 @@ def _is_short_list_item(line: str) -> bool:
 
 
 def _is_direct_quote_line(line: str) -> bool:
+    """True if the line contains a quotation mark, used by QUOTE_ONLY narrative labels."""
     return bool(DIRECT_QUOTE_RE.search(line))
 
 
@@ -291,6 +339,7 @@ class ContextStateMachine:
     }
 
     def __init__(self):
+        """Initialize an empty context stack at the start of Section 1."""
         self.subsection_label = None   # outer: set by SUBSECTION, never reset by blank
         self.narrative_label  = None   # inner: set by KEY_*, PERSON, LETTER
         self.narrative_type   = None
@@ -378,6 +427,19 @@ class ContextStateMachine:
         return None
 
     def process_line(self, raw_line: str, line_num: int, line_class: str) -> NormalizedLine:
+        """Advance the state machine by one line and emit its NormalizedLine.
+
+        Inputs: the stripped line text, its 1-based line number, and the
+        line-class tag already computed by `classify_line`.
+        Output: a `NormalizedLine` with `enriched_text` carrying whatever
+        context prefix currently applies, and `discard=True` for lines
+        that only update state (headers, blank lines) rather than
+        contributing content.
+        Side effect: mutates `self` (subsection/narrative labels, current
+        age, alternating-table state) so that later calls see the
+        correct running context. Branches below are grouped by line
+        class, one per structural role identified by the classifier.
+        """
         stripped = raw_line.strip()
 
         # ── EMPTY ────────────────────────────────────────────────
@@ -644,10 +706,22 @@ class ContextStateMachine:
 # ─────────────────────────────────────────────────────────────
 
 def _tokenize(text: str) -> set:
+    """Lowercase word/number tokens used for the zero-removal token check."""
     return set(re.findall(r"[a-zA-Z0-9']+", text.lower()))
 
 
 def validate(raw_text: str, normalized: NormalizedNote) -> tuple:
+    """Check the "zero removal" design principle: every content token in
+    the raw note must reappear somewhere in the normalized output
+    (as raw or enriched text), so headers/prefixing never silently drop
+    clinical content.
+
+    Inputs: the original raw note text and the `NormalizedNote` produced
+    from it.
+    Output: (ok: bool, message: str) — ok is False if any token longer
+    than 2 characters present in the raw text (outside pure structural
+    headers) cannot be found anywhere in the output.
+    """
     raw_tokens = set()
     for line in raw_text.split("\n"):
         s = line.strip().lower()
@@ -675,6 +749,15 @@ def validate(raw_text: str, normalized: NormalizedNote) -> tuple:
 # ─────────────────────────────────────────────────────────────
 
 def preprocess(raw_text: str, patient_id: str = "") -> NormalizedNote:
+    """Entry point for the preprocessing stage: run the full pipeline of
+    classify-then-process over every line of one patient's raw note,
+    then validate the result.
+
+    Input: raw note text as a single string, plus an optional patient
+    identifier for bookkeeping.
+    Output: a `NormalizedNote` ready to be flattened (`to_flat_text`) and
+    handed to Stage 1, or serialized (`to_json`) for inspection.
+    """
     sm    = ContextStateMachine()
     lines = raw_text.split("\n")
     out   = []
@@ -697,6 +780,8 @@ def preprocess(raw_text: str, patient_id: str = "") -> NormalizedNote:
 # ─────────────────────────────────────────────────────────────
 
 def print_normalized(note: NormalizedNote, show_discarded: bool = False):
+    """Human-readable dump of a NormalizedNote to stdout, for manual
+    inspection/debugging; has no effect on pipeline output."""
     print(f"\n{'='*65}")
     print(f"PREPROCESSOR OUTPUT  |  patient: {note.patient_id or 'unknown'}")
     print(f"Validation: {'✓ OK' if note.validation_ok else '✗ FAILED'}"
@@ -718,10 +803,12 @@ def print_normalized(note: NormalizedNote, show_discarded: bool = False):
 
 
 def to_flat_text(note: NormalizedNote) -> str:
+    """Join kept lines' enriched text into the flat format Stage 1 expects as input."""
     return "\n".join(nl.enriched_text for nl in note.content_lines())
 
 
 def to_json(note: NormalizedNote, path: str):
+    """Serialize the full NormalizedNote (including discarded lines) to disk for auditing."""
     with open(path, "w", encoding="utf-8") as f:
         json.dump(note.to_dict(), f, indent=2, ensure_ascii=False)
 

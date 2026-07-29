@@ -1,7 +1,23 @@
 #!/usr/bin/env python3
 """
-LLM-based ACE scoring: direct mode (score from notes) or reconciliation mode 
+LLM-based ACE scoring: direct mode (score from notes) or reconciliation mode
 (revise patient's self-filled form using notes).
+
+Paper concept: this is the "reconciliation" comparison baseline the
+paper measures FiRE against (a superset of fire_llm_baseline.py, adding
+the self-form + notes reconciliation condition). Like the direct
+baseline, it collapses all of FiRE's intermediate stages (Event
+Extraction, Verification, State Space Mapping, Expression Construction,
+Projection, Scoring) into one LLM call.
+
+Pipeline position: not part of the FiRE pipeline itself.
+Main input: a raw consultation-notes text file, plus optionally a
+patient self-filled ACE form JSON. Main output: a per-item ACE scorecard
+JSON; in reconciliation mode, each item also records whether/why the
+model changed the patient's own answer.
+Key assumption: the reconciliation prompt never tells the model which
+items the notes are silent on — the model must decide that itself from
+the notes' actual content, which is what `revision_reason` audits.
 
 DIRECT MODE (default):
   Queries the model to score the 14-item Adverse Childhood Experiences (ACE)
@@ -66,6 +82,7 @@ HIGH_RISK_NOTE = (
 )
 
 def risk_band(score: int) -> str:
+    """Standard ACE-count risk bands, matching Worker 4's `canonical_risk`."""
     if score == 0:  return "MINIMAL"
     if score <= 1:  return "LOW"
     if score <= 3:  return "MODERATE"
@@ -78,6 +95,7 @@ def risk_band(score: int) -> str:
 # COERCION HELPERS
 # ─────────────────────────────────────────────────────────────
 def _as_bool(v) -> bool:
+    """Coerce a model's "present" field (bool, number, or string) to bool."""
     if isinstance(v, bool):
         return v
     if isinstance(v, (int, float)):
@@ -124,6 +142,7 @@ def _form_val(v) -> int:
 
 
 def _form_num(k) -> "int | None":
+    """Extract the ACE item number from a form key like 'ACE-3' or '3'."""
     m = re.search(r"\d+", str(k))
     return int(m.group()) if m else None
 
@@ -220,6 +239,8 @@ _REASONING_FAMILY_RE = re.compile(r'^(gpt-5|o1|o3|o4)', re.IGNORECASE)
 
 
 def _is_reasoning_model(model_name: str) -> bool:
+    """True if model_name is a reasoning-family model (GPT-5.x, o1/o3/o4)
+    that requires the alternate payload shape built in `_build_openai_payload`."""
     return bool(_REASONING_FAMILY_RE.match(model_name or ""))
 
 
@@ -240,6 +261,8 @@ RECONCILE_SYSTEM_PROMPT = (
 
 
 def build_user_prompt(notes: str) -> str:
+    """Build the direct-mode user prompt: all 14 ACE questions, the
+    required per-item JSON schema, then the notes themselves verbatim."""
     items = "\n".join(f"  ACE-{n}: {q}" for n, q in ACE_QUESTIONS.items())
 
     schema = '''{
@@ -423,6 +446,8 @@ def call_gemini(url: str, key: str, model: str,
 
 def query_model(model_name: str, key: str, system: str, user: str,
                 verbose: bool = False) -> str:
+    """Dispatch to the correct provider call for model_name and return
+    its raw text reply (still needing JSON extraction/normalisation)."""
     cfg = MODELS[model_name]
     if cfg["provider"] == "gemini":
         return call_gemini(cfg["url"], key, model_name, system, user, verbose)
@@ -556,6 +581,7 @@ def normalise_reconcile(raw: dict, form: dict) -> dict:
 CONF_LABEL = {"high": "HIGH  ", "medium": "MEDIUM", "low": "LOW \u26a0 "}
 
 def print_report(model_name: str, patient: str, result: dict):
+    """Print the human-readable direct-mode per-item scorecard and summary to stdout."""
     sep = "=" * 72
     print("\n" + sep)
     print(f"  LLM ACE BASELINE — {patient}   (model: {model_name})")
@@ -589,6 +615,9 @@ def print_report(model_name: str, patient: str, result: dict):
 
 
 def print_report_reconcile(model_name: str, patient: str, result: dict):
+    """Print the human-readable reconciliation-mode report: self-report
+    vs. revised score, every changed item, and any unjustified changes
+    (a revision with no stated reason)."""
     sep = "=" * 72
     print("\n" + sep)
     print(f"  LLM ACE RECONCILE (self-form + notes) — {patient}   (model: {model_name})")
@@ -638,6 +667,10 @@ def print_report_reconcile(model_name: str, patient: str, result: dict):
 # ─────────────────────────────────────────────────────────────
 
 def selftest() -> bool:
+    """Offline regression guard: exercises the model registry, risk-band
+    boundaries, reasoning-model payload shape, every tolerated
+    self-form JSON shape (bare list, dict, list-of-dicts), and
+    reconciliation-mode change/revision-reason bookkeeping."""
     ok = True
 
     def check(cond, name):
@@ -715,6 +748,10 @@ def selftest() -> bool:
 # CLI
 # ─────────────────────────────────────────────────────────────
 def main():
+    """CLI entry point: load notes (and, if --form is given, the
+    patient's self-report), build either the direct or reconciliation
+    prompt accordingly, query the chosen model, normalise its reply,
+    print the report, and write the full result to disk."""
     ap = argparse.ArgumentParser(
         description="Score ACE from consultation notes using one LLM. "
                     "With --form, instead revise the patient's own self-filled ACE form. "

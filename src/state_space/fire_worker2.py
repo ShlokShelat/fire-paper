@@ -1,10 +1,25 @@
 """
 Clinical State Space Matcher — General Domain Pipeline
 
+Paper concept: this file implements the paper's State Space Mapping
+stage (ii) in full — decomposing each verified event into atomic
+sub-events (Oracle) and mapping each to the shared state-space taxonomy
+or minting a new provisional state when no match exists (Judge/Genesis).
+
+Pipeline position: Worker 2, run after Worker 1 (fire_stage2_3_single_model.py,
+optionally through Stage 4/5) and before Worker 3 (fire_worker3_general.py).
 Maps validated clinical events to a shared state space taxonomy via Oracle
-(event decomposition) → Global Vector Search → Judge (state matching) → 
+(event decomposition) → Global Vector Search → Judge (state matching) →
 Genesis (new state creation) loop. Implements provisional state scoping and
 clinician review gate per paper Section 3.2.
+
+Main input: a Worker 1 output file (validated events) and the persistent
+state-space JSON database (see fire_state_space_tree.json). Main output:
+the same events annotated with resolved state codes, plus an updated
+state-space database (new provisional states appended). Key assumption:
+each sub-event's supporting_quote must be a verbatim span of the source
+text — the Oracle prompt enforces this as the grounding proof that lets
+new states be trusted enough to add to the shared taxonomy.
 
 Key features:
   - Flat global semantic search across all states (no cluster pre-filtering)
@@ -228,19 +243,23 @@ class TokenCounter:
         self.calls             = 0
 
     def add(self, usage: dict) -> None:
+        """Accumulate one API call's token usage into the running totals."""
         self.prompt_tokens     += int(usage.get("prompt_tokens", 0))
         self.completion_tokens += int(usage.get("completion_tokens", 0))
         self.calls             += 1
 
     @property
     def total_tokens(self) -> int:
+        """Prompt + completion tokens accumulated so far."""
         return self.prompt_tokens + self.completion_tokens
 
     @property
     def cost_usd(self) -> float:
+        """Estimated USD cost so far, at the model's per-token rates."""
         return (self.prompt_tokens * 0.14 + self.completion_tokens * 0.28) / 1_000_000
 
     def summary(self) -> str:
+        """One-line human-readable summary for end-of-run logging."""
         return (
             f"LLM calls: {self.calls} | "
             f"tokens: {self.prompt_tokens:,} in + {self.completion_tokens:,} out "
@@ -254,6 +273,9 @@ class TokenCounter:
 # ─────────────────────────────────────────────────────────────
 
 class ResumeManager:
+    """Tracks which events have already been fully processed (Oracle +
+    Judge + state resolution) in a prior run, persisted to `resume_path`,
+    so a re-run can skip them instead of re-issuing LLM calls."""
     def __init__(self, resume_path: Path, enabled: bool):
         self.path    = resume_path
         self.enabled = enabled
@@ -267,12 +289,16 @@ class ResumeManager:
                          len(self._data), resume_path)
 
     def is_done(self, unit_id: str) -> bool:
+        """True if unit_id was already completed in a prior (resumed) run."""
         return unit_id in self._data
 
     def get(self, unit_id: str) -> dict:
+        """Return the previously-computed result for an already-done unit_id."""
         return self._data[unit_id]
 
     async def mark_done(self, unit_id: str, event: dict) -> None:
+        """Record a unit as complete and persist the checkpoint to disk
+        immediately, so a crash mid-run loses at most the current unit."""
         if not self.enabled:
             return
         async with self._lock:
@@ -286,6 +312,9 @@ class ResumeManager:
 # ─────────────────────────────────────────────────────────────
 
 def build_section_map(stage1_data: list) -> tuple[dict, dict]:
+    """Build {heading -> paragraph_text} and {heading -> ordered content
+    list} maps from Stage 1 sentences, so the Oracle prompt can be given
+    the full clinical section around an event, not just its one sentence."""
     if not stage1_data:
         return {}, {}
 
@@ -326,6 +355,9 @@ def build_section_map(stage1_data: list) -> tuple[dict, dict]:
 
 
 def lookup_section(heading: str, section_map: dict) -> str:
+    """Fuzzy lookup of a section's paragraph text by heading, tolerating
+    minor prefix/suffix differences between an event's recorded
+    subsection and the section_map's keys."""
     if not heading:
         return ""
     h = re.sub(r"\s+", " ", heading.strip())
@@ -347,6 +379,9 @@ def lookup_section(heading: str, section_map: dict) -> str:
 
 
 def build_enriched_context(event_obj: dict, section_map: dict, context_map: dict) -> str:
+    """Resolve the best available background context (full section
+    paragraph, else nearby-line context) for one event, truncated to a
+    prompt-friendly length, to pass to the Oracle alongside the event."""
     subsection = str(event_obj.get("subsection") or "")
     line_no    = event_obj.get("line_number")
     if subsection:
@@ -529,6 +564,9 @@ _RECOLLECTION_MARKERS = [
 ]
 
 def detect_recollection(text: str) -> dict:
+    """Detect whether event text describes a present-day recollection of
+    past trauma (vs. the original occurrence), via _RECOLLECTION_MARKERS.
+    Returns {"is_recollection", "recollection_reference"}."""
     t = text.lower()
     for pattern in _RECOLLECTION_MARKERS:
         m = re.search(pattern, t)
@@ -684,6 +722,8 @@ class StateSpaceTree:
     """Flat global semantic search over ALL states (no cluster gating)."""
 
     def __init__(self, filepath: str):
+        """Load the state-space database from `filepath` (or start with
+        an empty one) and build its in-memory embedding indexes."""
         self.filepath = filepath
         logging.info("Loading SentenceTransformer: all-MiniLM-L6-v2")
         self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
@@ -705,6 +745,9 @@ class StateSpaceTree:
         self.creation_lock = asyncio.Lock()
 
     def _build_indexes(self) -> None:
+        """Recompute the embedding vectors for every cluster and state in
+        the current database, replacing the in-memory search indexes.
+        Called on load and after any structural change to `self.db`."""
         new_state_idx:   dict = {}
         new_cluster_idx: dict = {}
 
@@ -1066,11 +1109,16 @@ _REASONING_FAMILY_RE = re.compile(r'^(gpt-5|o1|o3|o4)', re.IGNORECASE)
 
 
 def _is_reasoning_model(model_name: str) -> bool:
+    """True if model_name is a reasoning-family model (GPT-5.x, o1/o3/o4)
+    that requires the alternate payload shape built in `_build_llm_payload`."""
     return bool(_REASONING_FAMILY_RE.match(model_name or ""))
 
 
 def _build_llm_payload(model_name: str, system_prompt: str, user_prompt: str,
                        max_output_tokens: int) -> dict:
+    """Build a Chat Completions payload valid for both classic chat
+    models and GPT-5-family reasoning models (which reject
+    temperature/max_tokens in favour of max_completion_tokens)."""
     payload = {
         "model": model_name,
         "response_format": {"type": "json_object"},
@@ -1096,6 +1144,10 @@ async def call_llm(
     max_retries:   int = 3,
     max_output_tokens: int = 4000,
 ) -> dict | None:
+    """Call the Oracle/Judge model with retry-on-failure and rate-limit
+    backoff, accumulating token usage into `counter`.
+    Returns the parsed JSON response dict, or None if all retries failed
+    (callers must handle a None result rather than assume success)."""
     payload = _build_llm_payload(MODEL_NAME, system_prompt, user_prompt, max_output_tokens)
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -1156,6 +1208,20 @@ async def process_event(
     dry_run:       bool,
     patient_id:    Optional[str] = None,
 ) -> dict:
+    """Resolve one Worker 1 event to state-space codes via the Oracle
+    (decompose into sub-events) then Judge (map-or-create) loop.
+
+    Input: the event dict, the shared StateSpaceTree, and section/context
+    maps for building the Oracle's background context.
+    Output: the event dict augmented with `sub_events` (each resolved to
+    a `state_code`, mapped or newly created) and top-level `state_codes`/
+    `cluster_symbols` summarising them. Side effect: may append a new
+    provisional state to `db_tree` (persisted to disk).
+    Each sub-event runs through, in order: age extraction, a grounding
+    gate (supporting_quote must be verifiable in the source), then
+    global vector search + Judge adjudication to map to an existing
+    state or create a new provisional one.
+    """
     raw_event   = str(event_obj.get("event") or "")
     life_stage  = str(event_obj.get("life_stage") or "Unknown").capitalize()
     unit_id     = str(event_obj.get("unit_id") or f"event_{idx}")
@@ -1440,6 +1506,13 @@ def _remap_event_codes(events: list, remap: dict) -> int:
 
 
 async def main_loop(args: argparse.Namespace) -> None:
+    """Top-level Worker 2 run: load the state-space DB and Worker 1
+    events, process every eligible event concurrently through
+    `process_event`, run a final dedup sweep, and write the annotated
+    events plus run statistics to `args.output`.
+    Side effects: mutates and persists the state-space file at
+    `args.state_space`, and (if --resume) a per-run resume checkpoint.
+    """
     api_key = os.environ.get(API_KEY_ENV)
     if not api_key and not args.dry_run:
         logging.error("%s environment variable is required.", API_KEY_ENV)
@@ -1503,6 +1576,9 @@ async def main_loop(args: argparse.Namespace) -> None:
     semaphore = asyncio.Semaphore(args.concurrency)
 
     async def bound_worker(rank: int, ev: dict) -> dict:
+        """Process one event under the concurrency semaphore, skipping it
+        if a resumed prior run already completed it, and checkpointing
+        the result once done."""
         unit_id = str(ev.get("unit_id") or f"event_{rank}")
         if resumer.is_done(unit_id):
             logging.info("[SKIP] %s (already done)", unit_id)
@@ -1587,6 +1663,9 @@ async def main_loop(args: argparse.Namespace) -> None:
 # ─────────────────────────────────────────────────────────────
 
 def selftest() -> bool:
+    """Offline regression guard: exercises cluster-name canonicalisation,
+    age-anchor extraction, quote-grounding, and reasoning-model payload
+    construction, all without any network calls."""
     ok = True
 
     def check(cond, name):

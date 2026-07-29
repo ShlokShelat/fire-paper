@@ -2,10 +2,25 @@
 """
 Direct ACE scoring from consultation notes using a single LLM.
 
-Queries one of four supported models (gpt-5.1, gemini-3.1-pro, 
-grok-4.20-0309-reasoning, or deepseek-v4-flash) to score the Adverse Childhood 
-Experiences (ACE) questionnaire from clinical notes. Each item is grounded in 
-verbatim source text from the notes, with reasoning and confidence level for 
+Paper concept: this is the "direct scoring" comparison baseline the
+paper measures FiRE against — it collapses all of FiRE's intermediate
+stages (Event Extraction, Verification, State Space Mapping, Expression
+Construction, Projection, Scoring) into a single LLM call, which is
+exactly the contrast the paper's ablation is measuring.
+
+Pipeline position: not part of the FiRE pipeline itself.
+Main input: a raw consultation-notes text file. Main output: a per-item
+ACE scorecard JSON, structurally similar to Worker 4's output but
+produced by asking one frontier model to score the full 14-item
+questionnaire directly from the notes in a single call.
+Key assumption: the model sees the same raw notes FiRE's pipeline
+does — see --strip-ace-annotations for removing any pre-computed ACE
+labels that would otherwise leak the answer.
+
+Queries one of four supported models (gpt-5.1, gemini-3.1-pro,
+grok-4.20-0309-reasoning, or deepseek-v4-flash) to score the Adverse Childhood
+Experiences (ACE) questionnaire from clinical notes. Each item is grounded in
+verbatim source text from the notes, with reasoning and confidence level for
 full auditability.
 
 Usage:
@@ -63,6 +78,7 @@ HIGH_RISK_NOTE = (
 )
 
 def risk_band(score: int) -> str:
+    """Standard ACE-count risk bands, matching Worker 4's `canonical_risk`."""
     if score == 0:  return "MINIMAL"
     if score <= 1:  return "LOW"
     if score <= 3:  return "MODERATE"
@@ -138,6 +154,8 @@ _REASONING_FAMILY_RE = re.compile(r'^(gpt-5|o1|o3|o4)', re.IGNORECASE)
 
 
 def _is_reasoning_model(model_name: str) -> bool:
+    """True if model_name is a reasoning-family model (GPT-5.x, o1/o3/o4)
+    that requires the alternate payload shape built in `_build_openai_payload`."""
     return bool(_REASONING_FAMILY_RE.match(model_name or ""))
 
 
@@ -151,6 +169,8 @@ SYSTEM_PROMPT = (
 )
 
 def build_user_prompt(notes: str) -> str:
+    """Build the single user-message prompt: all 14 ACE questions, the
+    required per-item JSON schema, then the notes themselves verbatim."""
     items = "\n".join(f"  ACE-{n}: {q}" for n, q in ACE_QUESTIONS.items())
 
     schema = '''{
@@ -296,6 +316,8 @@ def call_gemini(url: str, key: str, model: str,
 
 
 def query_model(model_name: str, key: str, notes: str, verbose: bool = False) -> str:
+    """Dispatch to the correct provider call for model_name and return
+    its raw text reply (still needing JSON extraction/normalisation)."""
     cfg = MODELS[model_name]
     system, user = SYSTEM_PROMPT, build_user_prompt(notes)
     if cfg["provider"] == "gemini":
@@ -307,6 +329,7 @@ def query_model(model_name: str, key: str, notes: str, verbose: bool = False) ->
 # RESULT NORMALISATION
 # ─────────────────────────────────────────────────────────────
 def _as_bool(v) -> bool:
+    """Coerce a model's "present" field (bool, number, or string) to bool."""
     if isinstance(v, bool):
         return v
     if isinstance(v, (int, float)):
@@ -378,6 +401,7 @@ def normalise(raw: dict) -> dict:
 CONF_LABEL = {"high": "HIGH  ", "medium": "MEDIUM", "low": "LOW \u26a0 "}
 
 def print_report(model_name: str, patient: str, result: dict):
+    """Print the human-readable per-item scorecard and summary to stdout."""
     sep = "=" * 72
     print("\n" + sep)
     print(f"  LLM ACE BASELINE — {patient}   (model: {model_name})")
@@ -418,6 +442,9 @@ def print_report(model_name: str, patient: str, result: dict):
 # ─────────────────────────────────────────────────────────────
 
 def selftest() -> bool:
+    """Offline regression guard: exercises the model registry, risk-band
+    boundaries, reasoning-model payload shape, and score normalisation,
+    all without any network calls."""
     ok = True
 
     def check(cond, name):
@@ -461,6 +488,9 @@ def selftest() -> bool:
 # CLI
 # ─────────────────────────────────────────────────────────────
 def main():
+    """CLI entry point: load notes, optionally strip pre-marked ACE
+    annotations, query the chosen model, normalise its JSON reply into
+    a scorecard, print the report, and write the full result to disk."""
     ap = argparse.ArgumentParser(
         description="Score ACE directly from consultation notes using one LLM. "
                     "Each item includes a source sentence, reasoning, and confidence level.")

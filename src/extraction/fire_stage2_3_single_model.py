@@ -1,6 +1,13 @@
 """
 FiRE Pipeline — Worker 1, Stage 2 + Stage 3  (single-model, axis-verified)
 ============================================================================
+Paper concept: Stage 2 is the LLM-driven half of the paper's Event
+Extraction (completing stage (i), "preprocessing into events"); Stage 3
+is the paper's Verification stage (iii) — the four-axis check
+(construct, actor/role, age window, groundedness) described in the
+paper is implemented exactly here, as pure deterministic code, not an
+LLM judgment call.
+
 Stage 2: Single LLM Event Extractor
   Model: GPT-5.1   (the same model FiRE's paper uses as its extraction
   model, so that any accuracy gap between FiRE and a "GPT-5.1 direct
@@ -19,7 +26,12 @@ Stage 3: Four-Axis Verification Engine (pure code, deterministic)
     4. GROUNDEDNESS — every person/action in the event is anchored in the
                       source text or immediate context.
 
-Output: validated_events.json — Worker 1 final output → Worker 2 input
+Pipeline position: this is Worker 1's final stage, run after fire_stage1.py.
+Main input: stage1_output.json (Stage 1's tagged-sentence list).
+Main output: validated_events.json, the per-event record set that
+Worker 2 (state-space matching) consumes next. Key assumption:
+extraction and verification both run against the single model in
+MODEL_NAME, so the paper's same-model ablation claim holds.
 
 Usage:
   python3 fire_stage2_3_single_model.py stage1_output.json \
@@ -218,6 +230,8 @@ VALID_CONFIDENCES = {"HIGH", "MEDIUM", "LOW"}
 
 @dataclass
 class ProcessingUnit:
+    """One section-chunk of grouped Stage 1 sentences that will be sent to
+    the extraction model as a single prompt (see `group_sentences`)."""
     unit_id:           str
     line_number:       int
     subsection:        str
@@ -232,6 +246,8 @@ class ProcessingUnit:
 
 @dataclass
 class LLMExtraction:
+    """One raw event object as returned by the extraction model for a
+    ProcessingUnit, before Stage 3 verification is applied."""
     source_sentence:        str
     event_present:          bool
     event:                  Optional[str]
@@ -248,6 +264,8 @@ class LLMExtraction:
 
 @dataclass
 class UnitLLMResult:
+    """Raw API call outcome for one ProcessingUnit: parsed extractions
+    plus call status/usage metadata, before per-extraction verification."""
     unit_id:          str
     model_name:       str
     extractions:      list
@@ -260,6 +278,10 @@ class UnitLLMResult:
 
 @dataclass
 class ValidatedEvent:
+    """Final Worker 1 output record for one event: the extraction plus
+    the outcome of all four Stage 3 verification axes (construct,
+    actor/role, age window, groundedness) and the resulting confidence
+    status. This is the record type Worker 2 consumes."""
     unit_id:               str
     source_sentence:       str
     event:                 str
@@ -301,6 +323,9 @@ class ValidatedEvent:
 # ─────────────────────────────────────────────────────────────
 
 def extract_subsection(sentence: str) -> str:
+    """Return the "subsection: " context prefix a preprocessed sentence
+    carries (empty string if none), used to group sentences that share
+    the same clinical section heading."""
     if sentence.startswith("["):
         return ""
     if ": " not in sentence:
@@ -310,6 +335,7 @@ def extract_subsection(sentence: str) -> str:
 
 
 def strip_prefix(sentence: str) -> str:
+    """Remove a sentence's "subsection: " context prefix, leaving raw content."""
     if ": " not in sentence:
         return sentence
     prefix = sentence.split(": ", 1)[0]
@@ -319,6 +345,10 @@ def strip_prefix(sentence: str) -> str:
 
 
 def is_fragment(text_after_prefix: str) -> bool:
+    """Heuristic: true if the content after a sentence's context prefix is
+    too short or verb-less to plausibly describe an event on its own
+    (used to decide whether a line needs neighbouring context to be
+    interpretable)."""
     s = text_after_prefix.strip().lower()
     if not s:
         return True
@@ -338,6 +368,20 @@ def is_fragment(text_after_prefix: str) -> bool:
 
 
 def group_sentences(stage1_data: list, patient_id: str) -> list:
+    """Turn Stage 1's flat sentence list into ProcessingUnits: one LLM
+    call's worth of grouped, context-labeled sentences per unit.
+
+    Input: stage1_data (Stage 1 output records) and the patient_id used
+    to build unit IDs.
+    Output: list of ProcessingUnit, each carrying a short window of
+    surrounding sentences (context_before/after) for reference.
+    Grouping runs in three phases: (1) drop administrative/EXCLUDE
+    sentences that should never reach the LLM, (2) merge consecutive
+    lines that share the same subsection or age context into one unit
+    so the model sees a coherent paragraph rather than isolated
+    fragments, (3) attach a small context window to each unit.
+    """
+    # Phase 1: filter out sentences that carry no extractable content.
     filtered = []
     for r in stage1_data:
         excl = r.get("exclusion_reason", "")
@@ -365,6 +409,8 @@ def group_sentences(stage1_data: list, patient_id: str) -> list:
         age_ctx = sentence_dict.get("age_context") or "unknown"
         return ("age", age_ctx)
 
+    # Phase 2: merge adjacent lines sharing the same grouping key
+    # (subsection or age context) into a single unit.
     merged_groups = []
     i = 0
     while i < len(sorted_lines):
@@ -388,6 +434,8 @@ def group_sentences(stage1_data: list, patient_id: str) -> list:
         merged_groups.append((base_ln, cur_group))
         i += 1
 
+    # Phase 3: build the final ProcessingUnit objects, attaching a
+    # small neighbouring-sentence window for disambiguation context.
     units = []
     for idx, (base_ln, group) in enumerate(merged_groups):
 
@@ -566,6 +614,8 @@ def build_prompt_user(unit: ProcessingUnit) -> str:
     """Build the structured user message for one processing unit."""
 
     def _strip_section_prefix(sentence: str, subsection: str) -> str:
+        """Remove the unit's own subsection prefix (or any short "key: "
+        prefix) so the model sees clean sentence content in the paragraph."""
         if subsection and sentence.startswith(subsection + ": "):
             return sentence[len(subsection) + 2:].strip()
         if ": " in sentence:
@@ -575,6 +625,9 @@ def build_prompt_user(unit: ProcessingUnit) -> str:
         return sentence
 
     def _to_paragraph(sentences: list, subsection: str, is_timeline: bool) -> str:
+        """Join a unit's sentences into one paragraph, collapsing runs of
+        lines that share the same inner "key: " label (e.g. repeated
+        table rows) into a single comma-separated line."""
         if is_timeline:
             stripped = sentences
         else:
@@ -712,6 +765,8 @@ REMINDER — re-read before answering:
 # ─────────────────────────────────────────────────────────────
 
 def is_reasoning_model(model_name: str) -> bool:
+    """True if model_name is a reasoning-family model (GPT-5.x, o1/o3/o4)
+    that requires the alternate payload shape built in `build_payload`."""
     return bool(_REASONING_FAMILY_RE.match(model_name or ""))
 
 
@@ -811,6 +866,15 @@ async def call_extraction_model(
 # ─────────────────────────────────────────────────────────────
 
 def parse_llm_response(raw: str, unit: ProcessingUnit) -> tuple:
+    """Parse the extraction model's raw text response into LLMExtraction
+    objects, tolerating markdown code fences and a few alternate JSON
+    shapes the model may return.
+
+    Input: raw response text and the ProcessingUnit it was generated
+    for (needed to resolve sentence_indices back to source text).
+    Output: (extractions: list[LLMExtraction], status: str), where
+    status is "SUCCESS", "PARSE_ERROR", or "INVALID_SCHEMA".
+    """
     text = raw.strip()
     text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.MULTILINE)
     text = re.sub(r'\s*```\s*$',       '', text, flags=re.MULTILINE)
@@ -930,10 +994,12 @@ def parse_llm_response(raw: str, unit: ProcessingUnit) -> tuple:
 
 
 def _normalise_person(p: str) -> str:
+    """Map a person-reference variant (e.g. "in-laws") to its canonical form."""
     return PERSON_REFERENCE_NORMALISE.get(p, p)
 
 
 def _person_in_text(person: str, text: str) -> bool:
+    """Word-boundary-safe check for whether `person` is mentioned in `text`."""
     norm = _normalise_person(person)
     if "-" in norm:
         return norm in text
@@ -941,6 +1007,9 @@ def _person_in_text(person: str, text: str) -> bool:
 
 
 def _source_anchors_person(person: str, source: str, context: str) -> bool:
+    """True if a cultural/relational trigger term (e.g. "mil") in the
+    source or context implies `person` even without naming them
+    directly, per PERSON_ANCHOR_EXPANSIONS."""
     person_lower = person.lower()
     all_text     = (source + " " + context).lower()
     for trigger, anchored_persons in PERSON_ANCHOR_EXPANSIONS.items():
@@ -956,6 +1025,11 @@ def _light_hallucination_check(
     context_lower:   str,
     experience_type: str = "event",
 ) -> bool:
+    """Cheap pre-check (used only to set `possible_hallucination` at parse
+    time) for whether the extracted event names a person absent from
+    both the source sentence and its surrounding context. The
+    authoritative groundedness check is `full_hallucination_check`,
+    run later during Stage 3 verification."""
     if (experience_type or "event").lower() == "belief":
         return False
     event_lower  = event.lower()
@@ -986,6 +1060,9 @@ NLI_ENTAILMENT_MIN = 0.55
 
 
 def _load_nli_model() -> bool:
+    """Lazily load the cross-encoder NLI model used as a directional
+    tie-breaker when cosine/Jaccard similarity falls in the ambiguous
+    band; caches availability so load is attempted only once."""
     global _nli_model, _nli_available
     if _nli_available is not None:
         return _nli_available
@@ -1098,6 +1175,8 @@ def compute_semantic_similarity(text_a: str, text_b: str) -> tuple:
 
 
 def is_agreed(score: float, backend: str) -> bool:
+    """Apply the correct pass/fail threshold for whichever similarity
+    backend produced `score` (cosine, Jaccard, or an NLI-upgraded score)."""
     if backend in ("nli_upgrade", "jaccard_nli_upg"):
         return True
     if backend == "nli_no_upgrade":
@@ -1112,6 +1191,10 @@ def is_agreed(score: float, backend: str) -> bool:
 # ─────────────────────────────────────────────────────────────
 
 def detect_cultural_note(event: str, source: str) -> Optional[str]:
+    """Attach an explanatory note when an Indian-cultural-context term
+    (see INDIAN_CULTURAL_GLOSSARY) appears in the event or source text,
+    so downstream review understands otherwise-opaque references.
+    Returns None if no glossary term is present."""
     WORD_BOUNDARY_TERMS = {
         "mil", "fil", "sil", "pind", "izzat",
         "kaka", "mama", "bua", "nani", "dadi", "nana", "dada",
@@ -1288,6 +1371,8 @@ _AGE_RANGE_RE = re.compile(r'(\d{1,2})\s*[-–to]+\s*(\d{1,2})', re.IGNORECASE)
 
 
 def _parse_ages_from_text(text: str) -> list:
+    """Extract all plausible ages (single values and ranges) mentioned in
+    text, used as evidence for the AXIS 3 age-window contradiction check."""
     ages = []
     for m in _AGE_RANGE_RE.finditer(text):
         try:
@@ -1355,6 +1440,9 @@ _FLAG_TO_MODE = {
 
 
 def structure_flags(flags) -> list:
+    """Convert raw "CODE: detail" verification-flag strings into structured
+    {axis, code, error_mode, detail} dicts, mapping each code to the
+    paper's E1-E6 error taxonomy via _FLAG_TO_MODE."""
     out = []
     for f in flags or []:
         code   = f.split(":", 1)[0].strip()
@@ -1425,6 +1513,13 @@ def verify_extraction(unit: ProcessingUnit, extraction) -> ValidatedEvent:
 
 
 def verify_unit(unit: ProcessingUnit, result: UnitLLMResult) -> list:
+    """Turn one unit's LLM call result into ValidatedEvent(s).
+
+    Handles three cases: an API/parse failure (emits one failed-status
+    record), a HIGH-confidence unit that the model returned zero events
+    for (emits a flagged NO_EVENT record for human review), and the
+    normal case (verifies each extraction via `verify_extraction`).
+    """
     validated = []
 
     if result.status != "SUCCESS":
@@ -1477,10 +1572,14 @@ def verify_unit(unit: ProcessingUnit, result: UnitLLMResult) -> list:
 # ─────────────────────────────────────────────────────────────
 
 def _sha(s: str) -> str:
+    """Short SHA-256 fingerprint, used to detect if prompt text has drifted."""
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]
 
 
 def build_run_manifest() -> dict:
+    """Snapshot the exact model, prompts (by hash), thresholds, and
+    similarity backend used for a run, so results can be tied back to
+    the configuration that produced them for reproducibility auditing."""
     return {
         "model":                MODEL_NAME,
         "verification_method":  "four_axis_deterministic",
@@ -1500,6 +1599,8 @@ def build_run_manifest() -> dict:
 
 
 def atomic_write_json(path: str, obj) -> None:
+    """Write JSON via a temp-file-then-rename so a crash mid-write never
+    leaves a partially-written output file for a long pipeline run."""
     d = os.path.dirname(os.path.abspath(path)) or "."
     fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
     try:
@@ -1523,6 +1624,17 @@ async def run_pipeline(
     concurrency: int = 5,
     resume_set:  set = None,
 ) -> tuple:
+    """Run Stage 2 (LLM extraction) then Stage 3 (four-axis verification)
+    over all units, with bounded concurrency and optional resume.
+
+    Input: ProcessingUnits from `group_sentences`, an API key, a
+    concurrency limit, and an optional set of already-processed unit
+    IDs to skip (resume support).
+    Output: (validated_events: list[ValidatedEvent], stats: dict,
+    audit_log: list) — stats/audit_log record token usage, per-axis
+    pass rates, and the E1-E6 error-mode tally for reporting.
+    Side effect: makes network calls to the extraction model API.
+    """
     if resume_set is None:
         resume_set = set()
 
@@ -1543,6 +1655,9 @@ async def run_pipeline(
     semaphore = asyncio.Semaphore(concurrency)
 
     async def process_unit(session: aiohttp.ClientSession, unit: ProcessingUnit):
+        """Extract one unit under the concurrency semaphore, with an
+        automatic single retry for a HIGH-confidence unit that came back
+        with zero events or an API error."""
         async with semaphore:
             res = await call_extraction_model(session, unit, api_key)
             if unit.stage1_confidence == "HIGH":
@@ -1643,6 +1758,8 @@ async def run_pipeline(
 # ─────────────────────────────────────────────────────────────
 
 def dry_run(units: list, n: int = 5) -> None:
+    """Print the first `n` units and their generated prompts without
+    calling the API, for inspecting grouping/prompt construction offline."""
     print(f"\n{'='*65}")
     print(f"DRY RUN — {len(units)} total units, showing first {n}")
     print(f"{'='*65}\n")
@@ -1668,6 +1785,10 @@ def dry_run(units: list, n: int = 5) -> None:
 # ─────────────────────────────────────────────────────────────
 
 def selftest() -> bool:
+    """Offline regression guard: exercises the actor-role and
+    groundedness heuristics, payload construction, and flag-structuring
+    logic against fixed cases, without any network calls. Returns True
+    iff every check passes."""
     ok = True
 
     def check(cond, name):
@@ -1711,6 +1832,9 @@ def selftest() -> bool:
 # ─────────────────────────────────────────────────────────────
 
 def main():
+    """CLI entry point: load Stage 1 output, group it into units, then
+    either dry-run, self-test, or run the full extraction+verification
+    pipeline and write validated_events.json plus its audit log."""
     parser = argparse.ArgumentParser(
         description="FiRE Worker 1 Stage 2+3 — Single-Model Extractor + Four-Axis Verification",
         formatter_class=argparse.RawDescriptionHelpFormatter,

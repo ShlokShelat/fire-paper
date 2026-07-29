@@ -1,13 +1,22 @@
 """FiRE Pipeline — Worker 4 ACE: expression-driven classic ACE scorer (0..14).
 
-India-adapted 14-item ACE instrument (Trivedi et al. 2025a), modified from
-the original 10-item Felitti et al. 1998 assessment. This scorer previously
-used the classic 16-item Western ACE set; it has been remapped to the
-14-item Indian instrument. Two items from the old 16-item set — household
-incarceration and death of a parent/guardian — are not part of the 14-item
-instrument and have been dropped entirely (they carry no ACE item; per the
-FiRE paper's worked example, such events are "dropped at projection, not
-verification").
+Paper concept: this file implements Scoring, the final half of the
+paper's stage (iv) — reading the ACE-projected FiRE Expression that
+Projection (fire_worker3_ace.py) produced and converting it into the
+classic 0-14 ACE count the paper reports, without re-deciding anything
+about which events or states are present.
+
+Pipeline position: final stage, run after Worker 3 ACE
+(fire_worker3_ace.py) has produced the ACE-projected FiRE Expression.
+Main input: a Worker 3 ACE output file (fire_expression, alphabet
+mapping/inventory, resolved_states). Main output: the per-item ACE
+scorecard (0-14), risk band, and clinical interaction/feedback flags.
+Key assumption: the score counts distinct ACE items present, never
+exponents — repetition/duration is carried only as reference metadata,
+consistent with the standard ACE questionnaire's binary per-item scoring.
+
+India-adapted 14-item ACE instrument ([ANONYMIZED CITATION]), modified
+from the original 10-item Felitti et al. 1998 assessment.
 
 Usage:
   python3 fire_worker4_ace.py p10_ace_w3.json -o p10_ace_score.json
@@ -258,7 +267,15 @@ def _check_duration(item: int, state_codes: list, states_by_code: dict) -> dict:
 
 def score_from_expression(w3: dict) -> dict:
     """Classic ACE score (0..14) from Worker 3 ACE output. Each distinct ACE
-    category present counts 1. Exponents are reference weights only."""
+    category present counts 1. Exponents are reference weights only.
+
+    Runs in two passes: first, resolve every alphabet symbol in the
+    expression to an ACE item number (preferring the deterministic
+    cluster-name mapping over Worker 3's own hint, and logging any
+    disagreement as a mapping_conflict); second, build one scorecard row
+    per ACE item (1-14) from the symbols that resolved to it, including
+    a duration check for the two items that require a sustained span.
+    """
     fire_expression = str(w3.get("fire_expression") or "")
     alphabet_mapping = w3.get("alphabet_mapping") or {}
     inventory = w3.get("alphabet_inventory") or {}
@@ -273,6 +290,7 @@ def score_from_expression(w3: dict) -> dict:
     unmapped_symbols = []
     mapping_conflicts = []
 
+    # Pass 1: resolve each symbol to an ACE item number.
     for sym in appearances:
         cluster = alphabet_mapping.get(sym) or \
                   (inventory.get(sym, {}) or {}).get("cluster_name") or ""
@@ -280,8 +298,7 @@ def score_from_expression(w3: dict) -> dict:
             continue
         det_item = cluster_to_ace_item(cluster)
         w3_items = (inventory.get(sym, {}) or {}).get("ace_items") or []
-        # Worker 3 hints may still carry stale 16-item numbering (10 or 12);
-        # those have no place in the 14-item instrument and are discarded.
+        # Discard any item numbers not supported by the 14-item instrument.
         w3_items = [i for i in w3_items if i not in (10, 12)] if w3_items else w3_items
         w3_item = w3_items[0] if len(w3_items) == 1 else (w3_items or None)
 
@@ -316,6 +333,7 @@ def score_from_expression(w3: dict) -> dict:
         else:
             item_to_symbols[item].append(sym)
 
+    # Pass 2: build one scorecard row per ACE item from its resolved symbols.
     scorecard: "OrderedDict[int, dict]" = OrderedDict()
     duration_unconfirmed_items = []
     for n in range(1, 15):
@@ -376,6 +394,7 @@ def score_from_expression(w3: dict) -> dict:
 
 
 def _category_of(n: int) -> str:
+    """Return which ACE_CATEGORIES bucket item n belongs to."""
     for cat, items in ACE_CATEGORIES.items():
         if n in items:
             return cat
@@ -438,6 +457,9 @@ def build_flags(scorecard: dict, feedback_loops: list) -> dict:
 # ─────────────────────────────────────────────────────────────
 
 def selftest() -> bool:
+    """Offline regression guard: exercises the paper's worked example
+    scorecard, duration-check confirmation/flagging, and the ACE-10/-12
+    dropped-item guard, against synthetic Worker 3 ACE output."""
     ok = True
 
     def check(cond, name):
@@ -565,6 +587,9 @@ def selftest() -> bool:
 # ─────────────────────────────────────────────────────────────
 
 def main():
+    """CLI entry point: load a Worker 3 ACE output file, compute the
+    scorecard and clinical flags, print the full report, and write it
+    to --output."""
     p = argparse.ArgumentParser(
         description="FiRE Worker 4 ACE — expression-driven classic ACE scorer")
     p.add_argument("input", nargs="?", help="Worker 3 ACE output (p10_ace_w3.json)")

@@ -44,13 +44,23 @@ Each output object:
     "is_direct_quote" : bool,
     "line_number"     : int
 }
+
+Usage:
+  python3 fire_stage1.py patient01_flat.txt                 # writes stage1_output.json
+  python3 fire_stage1.py patient01_flat.txt -o stage1_output.json
+  python3 fire_stage1.py --selftest
+
+spaCy is needed only to split long lines into sentences (spacy.blank("en")
+with the rule-based sentencizer; no language model is downloaded). It is
+imported when a note is processed, so --selftest runs without it.
 """
 
-import re
+import argparse
 import json
+import re
+import sys
 from dataclasses import dataclass, field, asdict
 from typing import Optional
-import spacy
 
 
 # ─────────────────────────────────────────────
@@ -126,12 +136,10 @@ CLINICAL_OBSERVATION_MARKERS = [
     "associated emotion recorded",
     "core trigger identified",
     "impact:", "characteristics:",
-    # REMOVED: "major trauma", "turning point", "formative wound",
-    # "major turning point", "ace confirmed"
-    # Reason: these appear in SECTION HEADINGS as labels
-    # (e.g. "Grandfather's Suicide — Witnessed — Major Trauma:")
-    # and are too ambiguous to reliably identify commentary sentences.
-    # Real commentary sentences use "identified as", "this suggests" etc.
+    # Not listed: "major trauma", "turning point", "formative wound",
+    # "ace confirmed". These appear in section headings as labels
+    # (e.g. "<Event> — Major Trauma:") and do not reliably identify
+    # commentary sentences, which use "identified as", "this suggests" etc.
 ]
 
 EVENT_VERBS = [
@@ -154,10 +162,10 @@ EVENT_VERBS = [
     "expelled", "suspended", "fired", "evicted", "separated",
     "experienced", "placed", "exposed", "subjected",
 ]
-# Note: "reported", "born", "ended", "stopped" removed to prevent
-# false positives on admin/description text like "reported as good",
-# "born in Uttarakhand", "attended" (contains ended), etc.
-# Word-boundary safe alternatives added in assign_confidence below.
+# "reported", "born", "ended" and "stopped" are not in EVENT_VERBS: as plain
+# substrings they match administrative or descriptive text ("reported as
+# good", "born in <place>", "attended" contains "ended"). The word-boundary
+# list below is matched as whole words instead (see assign_confidence).
 WORD_BOUNDARY_EVENT_VERBS = [
     "stopped", "ended", "born with", "sent",
 ]
@@ -173,7 +181,7 @@ DESCRIPTIVE_QUALITY_MARKERS = [
 ]
 
 EXCLUSION_BELIEF_PATTERNS = [
-    # NOTE: "core belief" removed intentionally.
+    # "core belief" is deliberately absent:
     # Lines containing "core belief" have rich subsection context
     # and should pass to Stage 2 for LLM judgment, not be excluded here.
     r"\bself.worth\b.*\blinked\b",
@@ -312,7 +320,7 @@ def assign_confidence(
 
     CRITICAL: Event verb checks run only on the CONTENT portion
     of the line, not the context prefix. This prevents prefixes
-    like "Death of Younger Sister:" from causing false HIGH tags
+    like "Death of <relative>:" from causing false HIGH tags
     on every child line that inherits that prefix.
     """
     if is_direct_quote:
@@ -328,9 +336,9 @@ def assign_confidence(
     #
     # For event verb detection, we iterate further (stripping sub-headings
     # like "Turning Point — Birthday Incident:" to reach the actual sentence).
-    # This distinction is intentional and correct:
-    #   Clinical flag: "Long-term impact: fear..." → content → LOW ✓
-    #   Event verb:    "Turning Point — Birthday: Made a decision" → stripped → MEDIUM ✓
+    # For example:
+    #   Clinical flag: "Long-term impact: fear..." -> content -> LOW
+    #   Event verb:    "Turning Point — <event>: Made a decision" -> stripped -> MEDIUM
     if ": " in text:
         first_prefix = text.split(": ", 1)[0].strip()
         if len(first_prefix) <= 80:
@@ -361,8 +369,7 @@ def assign_confidence(
         return "HIGH"
 
     # Word-boundary checked verbs — content only
-    import re as _re
-    if any(_re.search(r"\b" + _re.escape(v) + r"\b", content_lower)
+    if any(re.search(r"\b" + re.escape(v) + r"\b", content_lower)
            for v in WORD_BOUNDARY_EVENT_VERBS):
         return "HIGH"
 
@@ -393,7 +400,7 @@ def detect_line_type(line: str) -> str:
 
 
 # ─────────────────────────────────────────────
-# 5.  SENTENCE SPLITTER
+# 4.  SENTENCE SPLITTER
 # ─────────────────────────────────────────────
 
 def split_if_needed(text: str, nlp) -> list:
@@ -423,7 +430,7 @@ def split_if_needed(text: str, nlp) -> list:
 def split_timeline_line(text: str, nlp) -> tuple:
     """
     Special splitter for TIMELINE lines like:
-      [October 2021] Relocates to Hong Kong. Cultural adjustment...
+      [~20-22] Moves to another city for work. Struggles to adjust...
 
     Returns (age_context: str, sub_sentences: list[str])
     where age_context is the extracted bracket and sub_sentences
@@ -449,15 +456,25 @@ def split_timeline_line(text: str, nlp) -> tuple:
 
 
 # ─────────────────────────────────────────────
-# 6.  MAIN PROCESSOR
+# 5.  MAIN PROCESSOR
 # ─────────────────────────────────────────────
 
-def process_stage1(flat_text: str) -> list:
+def _blank_sentencizer():
+    """spaCy's blank English pipeline with the rule-based sentencizer."""
+    import spacy
+    nlp = spacy.blank("en")
+    nlp.add_pipe("sentencizer")
+    return nlp
+
+
+def process_stage1(flat_text: str, nlp=None) -> list:
     """
     Main Stage 1 processor.
 
     Input: flat_text, the preprocessor's flattened output (one
-    context-prefixed line per string, joined with newlines).
+    context-prefixed line per string, joined with newlines), and
+    optionally a sentence splitter `nlp` (default: spaCy's blank English
+    pipeline with the sentencizer, as in the paper's runs).
     Output: list of TaggedSentence dicts (via `.to_dict()`), one per
     (sub-)sentence, ready to be filtered with `filter_for_stage2`.
 
@@ -468,8 +485,8 @@ def process_stage1(flat_text: str) -> list:
       3. Assign confidence
       4. Optionally split long plain lines
     """
-    nlp = spacy.blank("en")
-    nlp.add_pipe("sentencizer")
+    if nlp is None:
+        nlp = _blank_sentencizer()
 
     results = []
     lines   = flat_text.split("\n")
@@ -496,7 +513,7 @@ def process_stage1(flat_text: str) -> list:
 
         # ── TIMELINE LINE ────────────────────────────────────────
         # [~6-8] content — extract age bracket, split if long,
-        # propagate age_context to ALL sub-sentences (Fix 2)
+        # propagate age_context to ALL sub-sentences
         if line_type == "TIMELINE":
             age_ctx, subs = split_timeline_line(line, nlp)
 
@@ -570,7 +587,7 @@ def process_stage1(flat_text: str) -> list:
 
 
 # ─────────────────────────────────────────────
-# 7.  OUTPUT HELPERS
+# 6.  OUTPUT HELPERS
 # ─────────────────────────────────────────────
 
 def filter_for_stage2(results: list) -> list:
@@ -599,18 +616,101 @@ def summary_stats(results: list) -> dict:
 
 
 # ─────────────────────────────────────────────
+# 7.  SELF-TEST
+# ─────────────────────────────────────────────
+
+class _PeriodSplitter:
+    """Stand-in for spaCy's sentencizer in the self-test when spaCy is not
+    installed: splits after ". ". Used only by selftest()."""
+    class _Span:
+        def __init__(self, text):
+            self.text = text
+
+    class _Doc:
+        def __init__(self, sents):
+            self.sents = sents
+
+    def __call__(self, text):
+        parts = [p for p in re.split(r"(?<=\.)\s+", text) if p.strip()]
+        return self._Doc([self._Span(p) for p in parts])
+
+
+def selftest() -> bool:
+    """Offline checks of line typing, confidence rules, exclusion and the
+    age bracket, on synthetic lines. Uses spaCy when it is installed and a
+    period splitter otherwise (only long unprefixed lines are split)."""
+    ok = True
+
+    def check(cond, name):
+        nonlocal ok
+        print(f"  [{'PASS' if cond else 'FAIL'}] {name}")
+        ok = ok and bool(cond)
+
+    check(detect_line_type("~6-8") == "STANDALONE_AGE", "bare age marker is STANDALONE_AGE")
+    check(detect_line_type("[~6-8] Father was strict.") == "TIMELINE", "[age] prefix is TIMELINE")
+    check(detect_line_type('Mother: "you are useless"') == "DIRECT_QUOTE", "quotation is DIRECT_QUOTE")
+    check(detect_line_type("Father: strict and distant") == "NARRATIVE", "other lines are NARRATIVE")
+    check(extract_age_context("[~12-16] Beaten by father") == "~12-16", "age bracket is extracted")
+
+    conf = lambda t: assign_confidence("NARRATIVE", extract_hedging_flags(t),
+                                       extract_clinical_flags(t), False, t)
+    check(conf("Childhood: Father beat mother regularly") == "HIGH",
+          "an event verb in the content gives HIGH")
+    check(conf("Death of a relative: Felt sad and quiet") == "MEDIUM",
+          "an event word only in the heading does not give HIGH")
+    check(conf("Formulation: this suggests a pattern of withdrawal") == "LOW",
+          "therapist commentary in the content gives LOW")
+    check(is_exclusion_candidate("Associated emotion: shame")[0],
+          "pure clinical observation is excluded")
+
+    try:
+        nlp = _blank_sentencizer()
+        splitter = "spaCy sentencizer"
+    except ImportError:
+        nlp = _PeriodSplitter()
+        splitter = "period splitter (spaCy not installed)"
+    flat = "\n".join([
+        "~6-8",
+        "[~6-8] Father emotionally abusive and controlling.",
+        "Family History: Mother was supportive.",
+        "Associated emotion: shame",
+        "[~12-16] " + "Father beat and pinched her. " * 6,
+    ])
+    res = process_stage1(flat, nlp=nlp)
+    tags = [(r["line_number"], r["confidence_tag"]) for r in res]
+    check(tags[0] == (1, "EXCLUDE") and res[0]["exclusion_reason"] == "standalone_age_marker",
+          "a standalone age marker is kept for traceability but excluded")
+    check((2, "HIGH") in tags and all(r["age_context"] == "~12-16" for r in res if r["line_number"] == 5),
+          f"timeline lines are HIGH and a split line keeps its age on every part ({splitter})")
+    check(sum(1 for r in res if r["line_number"] == 5) > 1, "a long timeline line is split")
+    check(len(filter_for_stage2(res)) == len(res) - 2, "EXCLUDE lines are not passed to Stage 2")
+
+    print("\nSELF-TEST:", "ALL PASS" if ok else "FAILURES PRESENT")
+    return ok
+
+
+# ─────────────────────────────────────────────
 # 8.  CLI
 # ─────────────────────────────────────────────
 
-if __name__ == "__main__":
-    import sys
+def main():
+    """CLI entry point: tag every line of a preprocessed flat note, print
+    a summary and the lines passed to Stage 2, and write the full list."""
+    ap = argparse.ArgumentParser(
+        description="FiRE Worker 1, Stage 1: rule-based line tagging (no model call)")
+    ap.add_argument("flat_file", nargs="?",
+                    help="Flat note written by fire_preprocessor.py (<name>_flat.txt)")
+    ap.add_argument("--output", "-o", default="stage1_output.json",
+                    help="Output path (default: stage1_output.json in the current folder)")
+    ap.add_argument("--selftest", action="store_true", help="Run offline checks and exit")
+    args = ap.parse_args()
 
-    if len(sys.argv) < 2:
-        print("Usage: python3 fire_stage1.py <flat_file.txt>")
-        print("       (flat_file.txt is output from fire_preprocessor.py)")
-        sys.exit(1)
+    if args.selftest:
+        sys.exit(0 if selftest() else 1)
+    if not args.flat_file:
+        ap.error("flat_file is required (unless using --selftest)")
 
-    with open(sys.argv[1], "r", encoding="utf-8") as f:
+    with open(args.flat_file, "r", encoding="utf-8") as f:
         flat_text = f.read()
 
     results = process_stage1(flat_text)
@@ -639,7 +739,10 @@ if __name__ == "__main__":
         if r["clinical_flags"]:
             print(f"  CLIN:  {r['clinical_flags']}")
 
-    output_path = "stage1_output.json"
-    with open(output_path, "w", encoding="utf-8") as f:
+    with open(args.output, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
-    print(f"\nFull output saved to: {output_path}")
+    print(f"\nFull output saved to: {args.output}")
+
+
+if __name__ == "__main__":
+    main()

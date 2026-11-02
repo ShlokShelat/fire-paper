@@ -9,8 +9,8 @@ extraction); it is not itself Event Extraction.
 Pipeline position: the first stage of the FiRE pipeline, run before any
 LLM-driven extraction. Consumes raw, semi-structured clinical notes and
 produces the flat, self-contained line format that every later stage
-(Stage 1 sentence tagging onward) depends on. It converts raw
-[REDACTED: clinical partner site] digitized consultation notes into a
+(Stage 1 sentence tagging onward) depends on. It converts the
+partner clinic's digitized consultation notes into a
 normalized flat format where every line is self-contained and carries
 its full context (subsection, narrative label, and age) as a prefix, so
 downstream stages never need to look at neighbouring lines to interpret
@@ -28,11 +28,25 @@ Design principles (the assumptions later stages rely on):
   - Zero hallucination: only moves and prefixes existing text
   - Zero removal:       every content token appears in output
   - Deterministic:      same input always produces same output
-  - No LLM:            pure rule-based state machine
+  - No LLM:             pure rule-based state machine
+
+The rules were written for the partner clinic's note layout: "SECTION n:"
+headings, numbered subsections ("2.1 ..."), a Section 3 timeline with age
+markers such as "~6-8" or "[~6-8] ..." rows, and "Key:" lines. Other layouts
+run, but the context prefixes later stages rely on may be poorer.
+
+Usage:
+  python3 fire_preprocessor.py patient01.txt
+      -> patient01_preprocessed.json and patient01_flat.txt next to the input
+  python3 fire_preprocessor.py patient01.txt --show-discarded
+  python3 fire_preprocessor.py --selftest
 """
 
-import re
+import argparse
 import json
+import re
+import sys
+from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
@@ -61,7 +75,7 @@ TABLE_COLUMN_WORDS = {
 }
 
 # Person name headers → prefix next line only, then reset to subsection
-# Includes multi-word family member labels found in [REDACTED: clinical partner site] notes
+# Includes multi-word family member labels found in the partner clinic's notes
 # Parenthetical qualifiers like "(paternal)", "(maternal)" are stripped
 # before matching, so "Grandfather (paternal)" matches "grandfather".
 PERSON_HEADERS = {
@@ -444,7 +458,7 @@ class ContextStateMachine:
 
         # ── EMPTY ────────────────────────────────────────────────
         if line_class == "EMPTY":
-            # Fix 1: blank line resets narrative but NOT subsection
+            # A blank line resets the narrative label but not the subsection
             self._reset_narrative()
             return NormalizedLine(
                 raw_text=stripped, enriched_text=stripped,
@@ -493,7 +507,7 @@ class ContextStateMachine:
 
         # ── STRUCTURAL ───────────────────────────────────────────
         if line_class == "STRUCTURAL":
-            # Fix 3: structural words reset narrative only, NOT subsection
+            # Structural words reset the narrative label only, not the subsection
             self._reset_narrative()
             return NormalizedLine(
                 raw_text=stripped, enriched_text=stripped,
@@ -784,7 +798,7 @@ def print_normalized(note: NormalizedNote, show_discarded: bool = False):
     inspection/debugging; has no effect on pipeline output."""
     print(f"\n{'='*65}")
     print(f"PREPROCESSOR OUTPUT  |  patient: {note.patient_id or 'unknown'}")
-    print(f"Validation: {'✓ OK' if note.validation_ok else '✗ FAILED'}"
+    print(f"Validation: {'OK' if note.validation_ok else 'FAILED'}"
           f"  — {note.validation_msg}")
     print(f"{'='*65}")
     total = len(note.lines)
@@ -814,30 +828,106 @@ def to_json(note: NormalizedNote, path: str):
 
 
 # ─────────────────────────────────────────────────────────────
-# 9.  CLI
+# 9.  SELF-TEST
 # ─────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
-    import sys
+_SELFTEST_NOTE = """SECTION 1: Intake
+Referred by:
+A friend
+SECTION 2: Family
+2.1 Father (age ~6-8)
+Father
+Strict and emotionally abusive.
+Core beliefs:
+I am not enough.
+SECTION 3: Timeline
+~6-8
+Bullied frequently at school.
+~12-16 Father beat and pinched her.
+"""
 
-    if len(sys.argv) < 2:
-        print("Usage: python3 fire_preprocessor_v2.py <notes_file.txt> [--show-discarded]")
-        sys.exit(1)
 
-    show_disc = "--show-discarded" in sys.argv
+def selftest() -> bool:
+    """Offline checks on a synthetic note in the partner clinic's layout:
+    context prefixes, age markers, discarded structure, and the zero-removal
+    validation."""
+    ok = True
 
-    with open(sys.argv[1], "r", encoding="utf-8") as f:
+    def check(cond, name):
+        nonlocal ok
+        print(f"  [{'PASS' if cond else 'FAIL'}] {name}")
+        ok = ok and bool(cond)
+
+    note = preprocess(_SELFTEST_NOTE, patient_id="selftest")
+    flat = to_flat_text(note).split("\n")
+    check(note.validation_ok, "zero-removal validation passes (every content token is kept)")
+    check("Father: Strict and emotionally abusive." in flat,
+          "a person header prefixes exactly the next line")
+    check("Father: Core beliefs: I am not enough." in flat,
+          "a key inside a subsection is composed as 'subsection: key: content'")
+    check("[~6-8] Bullied frequently at school." in flat,
+          "a Section 3 line carries the current age marker as a prefix")
+    check("~12-16 Father beat and pinched her." in flat,
+          "a timeline row (age and content on one line) is kept as written")
+    check("Referred by: A friend" in flat, "an admin key prefixes its value")
+    check(all(not l.startswith("SECTION") for l in flat),
+          "section headers are discarded from the flat text")
+    check(classify_line("Grandfather (paternal)", 2) == "PERSON_HEADER",
+          "a parenthetical qualifier does not block a person header")
+    bad = NormalizedNote(lines=[], patient_id="x")
+    check(not validate("Father beat her", bad)[0],
+          "validation fails when content tokens are missing")
+    print("\nSELF-TEST:", "ALL PASS" if ok else "FAILURES PRESENT")
+    return ok
+
+
+# ─────────────────────────────────────────────────────────────
+# 10.  CLI
+# ─────────────────────────────────────────────────────────────
+
+def _output_paths(notes_path: str) -> tuple:
+    """(<stem>_preprocessed.json, <stem>_flat.txt) next to the input file.
+    For a .txt input this is the input name with ".txt" replaced."""
+    p = Path(notes_path)
+    stem = p.name[:-4] if p.name.endswith(".txt") else p.name
+    return (str(p.with_name(stem + "_preprocessed.json")),
+            str(p.with_name(stem + "_flat.txt")))
+
+
+def main():
+    """CLI entry point: normalise one note, print it, and write the JSON
+    record and the flat text Stage 1 reads."""
+    ap = argparse.ArgumentParser(
+        description="FiRE Preprocessor: rule-based normalisation of one note to "
+                    "flat, self-contained lines (no model call). Writes "
+                    "<name>_preprocessed.json and <name>_flat.txt next to the input.")
+    ap.add_argument("notes_file", nargs="?", help="Consultation notes, plain text")
+    ap.add_argument("--show-discarded", action="store_true",
+                    help="Also print the structural lines that are discarded")
+    ap.add_argument("--selftest", action="store_true", help="Run offline checks and exit")
+    args = ap.parse_args()
+
+    if args.selftest:
+        sys.exit(0 if selftest() else 1)
+    if not args.notes_file:
+        ap.error("notes_file is required (unless using --selftest)")
+
+    with open(args.notes_file, "r", encoding="utf-8") as f:
         raw = f.read()
 
-    patient_id = sys.argv[1].replace(".txt", "").split("/")[-1]
+    patient_id = Path(args.notes_file).name
+    patient_id = patient_id[:-4] if patient_id.endswith(".txt") else patient_id
     note = preprocess(raw, patient_id=patient_id)
-    print_normalized(note, show_discarded=show_disc)
+    print_normalized(note, show_discarded=args.show_discarded)
 
-    json_path = sys.argv[1].replace(".txt", "_preprocessed.json")
+    json_path, flat_path = _output_paths(args.notes_file)
     to_json(note, json_path)
     print(f"\nFull JSON saved to: {json_path}")
 
-    flat_path = sys.argv[1].replace(".txt", "_flat.txt")
     with open(flat_path, "w", encoding="utf-8") as f:
         f.write(to_flat_text(note))
     print(f"Flat text saved to: {flat_path}")
+
+
+if __name__ == "__main__":
+    main()

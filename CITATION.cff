@@ -1,0 +1,48 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite the paper below."
+title: "FiRE: Auditable Clinical Scoring from Consultation Notes with a Neurosymbolic Concept Bottleneck"
+type: software
+version: 1.0.0
+license: MIT
+repository-code: "https://github.com/ShlokShelat/fire-paper"
+authors:
+  - family-names: Shelat
+    given-names: Shlok
+    affiliation: "Indian AI Research Organisation (IAIRO)"
+  - family-names: Salvi
+    given-names: Shrey
+    affiliation: "Indian AI Research Organisation (IAIRO)"
+  - family-names: Roy
+    given-names: Souvik
+    affiliation: "Ahmedabad University"
+  - family-names: Gaur
+    given-names: Manas
+    affiliation: "University of Maryland, Baltimore County"
+  - family-names: Trivedi
+    given-names: Gunjan
+  - family-names: Trivedi
+    given-names: Riri
+  - family-names: Sheth
+    given-names: Amit
+    affiliation: "Indian AI Research Organisation (IAIRO)"
+preferred-citation:
+  type: article
+  title: "FiRE: Auditable Clinical Scoring from Consultation Notes with a Neurosymbolic Concept Bottleneck"
+  journal: "IEEE Journal of Biomedical and Health Informatics"
+  year: 2026
+  notes: "Under review"
+  authors:
+    - family-names: Shelat
+      given-names: Shlok
+    - family-names: Salvi
+      given-names: Shrey
+    - family-names: Roy
+      given-names: Souvik
+    - family-names: Gaur
+      given-names: Manas
+    - family-names: Trivedi
+      given-names: Gunjan
+    - family-names: Trivedi
+      given-names: Riri
+    - family-names: Sheth
+      given-names: Amit

@@ -1,46 +1,45 @@
 """
-FiRE Pipeline — Worker 1, Stage 2 + Stage 3  (single-model, axis-verified)
+FiRE Pipeline — Worker 1, Stages 2-3: single-model extraction and four checks
 ============================================================================
-Paper concept: Stage 2 is the LLM-driven half of the paper's Event
-Extraction (completing stage (i), "preprocessing into events"); Stage 3
-is the paper's Verification stage (iii) — the four-axis check
-(construct, actor/role, age window, groundedness) described in the
-paper is implemented exactly here, as pure deterministic code, not an
-LLM judgment call.
+Paper concept: Stage 2 completes stage (i), turning the tagged lines from
+Stage 1 into events with one GPT-5.1 call per note section; Stage 3 is the
+verification of stage (iii), four checks run in code on every extracted
+event, before Worker 2 maps it to a state (Supplementary Material, S1).
 
-Stage 2: Single LLM Event Extractor
-  Model: GPT-5.1   (the same model FiRE's paper uses as its extraction
-  model, so that any accuracy gap between FiRE and a "GPT-5.1 direct
-  scoring" baseline is attributable to the symbolic/verification
-  scaffolding around it, not to a different or stronger model doing the
-  extraction. This is the paper's "same-model ablation" claim, and it
-  only holds if extraction genuinely runs through one model.)
+Stage 2: event extraction with MODEL_NAME (GPT-5.1, reasoning effort "none",
+  output limit 2000 tokens). GPT-5.1 is also the model of one direct-scoring
+  baseline, which makes that comparison a same-model comparison.
 
-Stage 3: Four-Axis Verification Engine (pure code, deterministic)
-    1. CONSTRUCT   — claimed experience_type matches the text, and the
-                      synthesized `event` is entailed by its own
-                      source_sentence (source -> event, directional).
-    2. ACTOR/ROLE   — the claimed agent is the one the source assigns the
-                      action to.
-    3. AGE WINDOW   — claimed life_stage is consistent with age evidence.
-    4. GROUNDEDNESS — every person/action in the event is anchored in the
-                      source text or immediate context.
+Stage 3: the four checks, deterministic code (no language-model call):
+    1. CONSTRUCT  (check_construct_correctness) — the event must be entailed
+       by its own source sentence: cosine >= 0.82 with all-MiniLM-L6-v2
+       (Jaccard >= 0.30 when embeddings are unavailable); between 0.50 and
+       0.82 (Jaccard 0.10-0.30) it passes only if the entailment model
+       (nli-MiniLM2-L6-H768) gives >= 0.55.
+    2. ACTOR/ROLE (check_actor_role) — the person listed first (the actor)
+       must be the one the source assigns the action to.
+    3. AGE        (check_age_window) — the event's life stage must not
+       contradict the ages in the text. The 0-18 ACE window is applied
+       later, at ACE projection (Worker 3 ACE).
+    4. CITED SPAN (full_hallucination_check, "groundedness") — every person,
+       action and clinical label in the event must be anchored in the cited
+       source sentence or its section context.
+  The status follows AXIS_CONFIDENCE_MATRIX: an event that passes all four
+  is CONFIRMED (TENTATIVE for a MEDIUM or LOW Stage 1 line); one failure
+  keeps it as REVIEW_REQUIRED (discarded for a LOW line); two or more
+  failures discard it. Stage 5 may later rescue a discarded event.
 
-Pipeline position: this is Worker 1's final stage, run after fire_stage1.py.
-Main input: stage1_output.json (Stage 1's tagged-sentence list).
-Main output: validated_events.json, the per-event record set that
-Worker 2 (state-space matching) consumes next. Key assumption:
-extraction and verification both run against the single model in
-MODEL_NAME, so the paper's same-model ablation claim holds.
+Pipeline position: after Stage 1 (fire_stage1.py), before Stage 4.
+Input: stage1_output.json. Output: validated_events.json (every event with
+its four check results, flags mapped to the E1-E6 modes, and status), plus
+validated_events_audit.json.
 
 Usage:
+  export OPENAI_API_KEY=...
   python3 fire_stage2_3_single_model.py stage1_output.json \
-    --patient-id patient03 \
-    --api-key YOUR_KEY \
-    [--output validated_events.json] [--concurrency 5] [--dry-run]
-  python3 fire_stage2_3_single_model.py --selftest      # offline regression guard
-
-Key also via env: OPENAI_API_KEY
+      --patient-id patient01 --output validated_events.json [--concurrency 5]
+  python3 fire_stage2_3_single_model.py stage1_output.json --dry-run   # show prompts, no API call
+  python3 fire_stage2_3_single_model.py --selftest                     # offline checks
 """
 
 import json
@@ -481,7 +480,7 @@ def group_sentences(stage1_data: list, patient_id: str) -> list:
 # 4.  PROMPT  (model-independent)
 # ─────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are a clinical experience extractor for the FiRE system (Finite automata inspired Reasoning Engine), a neurosymbolic trauma assessment pipeline built on Indian clinical consultation notes from [REDACTED: clinical partner site].
+SYSTEM_PROMPT = """You are a clinical experience extractor for the FiRE system (Finite automata inspired Reasoning Engine), a neurosymbolic trauma assessment pipeline built on Indian clinical consultation notes from [partner clinic].
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CRITICAL STRUCTURAL MANDATE
@@ -496,7 +495,7 @@ Your job is to extract comprehensive clinical content from each narrative sectio
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 INDIAN CLINICAL CONTEXT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Notes come from [REDACTED: clinical partner site], India.
+Notes come from [partner clinic], India.
 - kaka/chacha = paternal uncle | mama = maternal uncle
 - nani/dadi = maternal/paternal grandmother | nana/dada = maternal/paternal grandfather
 - MIL/FIL = mother-in-law / father-in-law
@@ -1836,7 +1835,8 @@ def main():
     either dry-run, self-test, or run the full extraction+verification
     pipeline and write validated_events.json plus its audit log."""
     parser = argparse.ArgumentParser(
-        description="FiRE Worker 1 Stage 2+3 — Single-Model Extractor + Four-Axis Verification",
+        description="FiRE Worker 1, Stages 2-3: extract events with GPT-5.1, then run "
+                    "the four checks in code",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("stage1_json", nargs="?",

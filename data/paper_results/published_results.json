@@ -1,0 +1,690 @@
+{
+ "_note": "Published results of the paper, transcribed from the LaTeX source: main paper Table II (accuracy and grounding) and Table III (error counts by mode), Supplementary Table S-stats (Wilson 95% intervals and McNemar lower bounds against FiRE) and the Supplementary ablation table (Section S10). 560 item decisions per system and condition (40 individuals x 14 items). These are aggregate counts, not per-item judgements; scripts/make_tables.py --self-test checks that every derived number here follows from the error counts.",
+ "n_individuals": 40,
+ "n_items": 14,
+ "conditions": {
+  "notes": "notes only",
+  "notes+form": "notes plus the self-filled form"
+ },
+ "systems": [
+  {
+   "system": "FiRE",
+   "table3_label": "FiRE",
+   "stats_label": "FiRE",
+   "notes": {
+    "errors": {
+     "E1": 0,
+     "E2": 27,
+     "E3": 0,
+     "E4": 0,
+     "E5": 4,
+     "E6": 0,
+     "total": 31
+    },
+    "accuracy": 94.46,
+    "grounded": 100.0,
+    "accuracy_ci": [
+     94.5,
+     92.2,
+     96.1
+    ],
+    "chi2_lower_bound": null
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 0,
+     "E2": 22,
+     "E3": 0,
+     "E4": 0,
+     "E5": 3,
+     "E6": 0,
+     "total": 25
+    },
+    "accuracy": 95.54,
+    "grounded": 100.0,
+    "accuracy_ci": [
+     95.5,
+     93.5,
+     97.0
+    ],
+    "chi2_lower_bound": null
+   }
+  },
+  {
+   "system": "GPT-5.1",
+   "table3_label": "GPT-5.1",
+   "stats_label": "GPT-5.1",
+   "notes": {
+    "errors": {
+     "E1": 35,
+     "E2": 16,
+     "E3": 47,
+     "E4": 29,
+     "E5": 43,
+     "E6": 0,
+     "total": 170
+    },
+    "accuracy": 69.64,
+    "grounded": 80.18,
+    "accuracy_ci": [
+     69.6,
+     65.7,
+     73.3
+    ],
+    "chi2_lower_bound": 94
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 38,
+     "E2": 18,
+     "E3": 47,
+     "E4": 31,
+     "E5": 49,
+     "E6": 57,
+     "total": 240
+    },
+    "accuracy": 57.14,
+    "grounded": 69.11,
+    "accuracy_ci": [
+     57.1,
+     53.0,
+     61.2
+    ],
+    "chi2_lower_bound": 172
+   }
+  },
+  {
+   "system": "Grok-4.20",
+   "table3_label": "Grok-4.20",
+   "stats_label": "Grok-4.20",
+   "notes": {
+    "errors": {
+     "E1": 32,
+     "E2": 49,
+     "E3": 44,
+     "E4": 20,
+     "E5": 47,
+     "E6": 0,
+     "total": 192
+    },
+    "accuracy": 65.71,
+    "grounded": 82.86,
+    "accuracy_ci": [
+     65.7,
+     61.7,
+     69.5
+    ],
+    "chi2_lower_bound": 114
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 34,
+     "E2": 40,
+     "E3": 46,
+     "E4": 26,
+     "E5": 43,
+     "E6": 56,
+     "total": 245
+    },
+    "accuracy": 56.25,
+    "grounded": 71.07,
+    "accuracy_ci": [
+     56.3,
+     52.1,
+     60.3
+    ],
+    "chi2_lower_bound": 177
+   }
+  },
+  {
+   "system": "Gemini 3.1 Pro",
+   "table3_label": "Gemini 3.1 Pro",
+   "stats_label": "Gemini 3.1 Pro",
+   "notes": {
+    "errors": {
+     "E1": 32,
+     "E2": 38,
+     "E3": 43,
+     "E4": 26,
+     "E5": 41,
+     "E6": 0,
+     "total": 180
+    },
+    "accuracy": 67.86,
+    "grounded": 81.96,
+    "accuracy_ci": [
+     67.9,
+     63.9,
+     71.6
+    ],
+    "chi2_lower_bound": 103
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 33,
+     "E2": 44,
+     "E3": 49,
+     "E4": 29,
+     "E5": 44,
+     "E6": 55,
+     "total": 254
+    },
+    "accuracy": 54.64,
+    "grounded": 70.36,
+    "accuracy_ci": [
+     54.6,
+     50.5,
+     58.7
+    ],
+    "chi2_lower_bound": 186
+   }
+  },
+  {
+   "system": "GPT-5.1, structure-guided",
+   "table3_label": "GPT-5.1, SG",
+   "stats_label": "GPT-5.1, SG",
+   "notes": {
+    "errors": {
+     "E1": 23,
+     "E2": 108,
+     "E3": 28,
+     "E4": 25,
+     "E5": 26,
+     "E6": 0,
+     "total": 210
+    },
+    "accuracy": 62.5,
+    "grounded": 86.43,
+    "accuracy_ci": [
+     62.5,
+     58.4,
+     66.4
+    ],
+    "chi2_lower_bound": 131
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 25,
+     "E2": 98,
+     "E3": 31,
+     "E4": 25,
+     "E5": 25,
+     "E6": 59,
+     "total": 263
+    },
+    "accuracy": 53.04,
+    "grounded": 75.0,
+    "accuracy_ci": [
+     53.0,
+     48.9,
+     57.1
+    ],
+    "chi2_lower_bound": 195
+   }
+  },
+  {
+   "system": "Grok-4.20, structure-guided",
+   "table3_label": "Grok-4.20, SG",
+   "stats_label": "Grok-4.20, SG",
+   "notes": {
+    "errors": {
+     "E1": 21,
+     "E2": 124,
+     "E3": 26,
+     "E4": 19,
+     "E5": 31,
+     "E6": 0,
+     "total": 221
+    },
+    "accuracy": 60.54,
+    "grounded": 88.21,
+    "accuracy_ci": [
+     60.5,
+     56.4,
+     64.5
+    ],
+    "chi2_lower_bound": 141
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 22,
+     "E2": 102,
+     "E3": 30,
+     "E4": 20,
+     "E5": 21,
+     "E6": 62,
+     "total": 257
+    },
+    "accuracy": 54.11,
+    "grounded": 76.07,
+    "accuracy_ci": [
+     54.1,
+     50.0,
+     58.2
+    ],
+    "chi2_lower_bound": 189
+   }
+  },
+  {
+   "system": "Gemini 3.1 Pro, structure-guided",
+   "table3_label": "Gemini 3.1 Pro, SG",
+   "stats_label": "Gemini 3.1, SG",
+   "notes": {
+    "errors": {
+     "E1": 22,
+     "E2": 104,
+     "E3": 25,
+     "E4": 23,
+     "E5": 28,
+     "E6": 0,
+     "total": 202
+    },
+    "accuracy": 63.93,
+    "grounded": 87.5,
+    "accuracy_ci": [
+     63.9,
+     59.9,
+     67.8
+    ],
+    "chi2_lower_bound": 124
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 24,
+     "E2": 100,
+     "E3": 33,
+     "E4": 21,
+     "E5": 22,
+     "E6": 60,
+     "total": 260
+    },
+    "accuracy": 53.57,
+    "grounded": 75.36,
+    "accuracy_ci": [
+     53.6,
+     49.4,
+     57.7
+    ],
+    "chi2_lower_bound": 192
+   }
+  },
+  {
+   "system": "GPT-5.1, knowledge-matched",
+   "table3_label": "GPT-5.1, KM",
+   "stats_label": "GPT-5.1, KM",
+   "notes": {
+    "errors": {
+     "E1": 22,
+     "E2": 55,
+     "E3": 23,
+     "E4": 20,
+     "E5": 23,
+     "E6": 0,
+     "total": 143
+    },
+    "accuracy": 74.46,
+    "grounded": 88.39,
+    "accuracy_ci": [
+     74.5,
+     70.7,
+     77.9
+    ],
+    "chi2_lower_bound": 70
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 22,
+     "E2": 54,
+     "E3": 26,
+     "E4": 21,
+     "E5": 20,
+     "E6": 56,
+     "total": 199
+    },
+    "accuracy": 64.46,
+    "grounded": 77.68,
+    "accuracy_ci": [
+     64.5,
+     60.4,
+     68.3
+    ],
+    "chi2_lower_bound": 133
+   }
+  },
+  {
+   "system": "Grok-4.20, knowledge-matched",
+   "table3_label": "Grok-4.20, KM",
+   "stats_label": "Grok-4.20, KM",
+   "notes": {
+    "errors": {
+     "E1": 20,
+     "E2": 66,
+     "E3": 22,
+     "E4": 19,
+     "E5": 28,
+     "E6": 0,
+     "total": 155
+    },
+    "accuracy": 72.32,
+    "grounded": 89.11,
+    "accuracy_ci": [
+     72.3,
+     68.5,
+     75.9
+    ],
+    "chi2_lower_bound": 81
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 20,
+     "E2": 61,
+     "E3": 24,
+     "E4": 16,
+     "E5": 19,
+     "E6": 63,
+     "total": 203
+    },
+    "accuracy": 63.75,
+    "grounded": 78.04,
+    "accuracy_ci": [
+     63.8,
+     59.7,
+     67.6
+    ],
+    "chi2_lower_bound": 137
+   }
+  },
+  {
+   "system": "Gemini 3.1 Pro, knowledge-matched",
+   "table3_label": "Gemini 3.1 Pro, KM",
+   "stats_label": "Gemini 3.1, KM",
+   "notes": {
+    "errors": {
+     "E1": 21,
+     "E2": 52,
+     "E3": 24,
+     "E4": 17,
+     "E5": 25,
+     "E6": 0,
+     "total": 139
+    },
+    "accuracy": 75.18,
+    "grounded": 88.93,
+    "accuracy_ci": [
+     75.2,
+     71.4,
+     78.6
+    ],
+    "chi2_lower_bound": 67
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 23,
+     "E2": 51,
+     "E3": 27,
+     "E4": 18,
+     "E5": 21,
+     "E6": 56,
+     "total": 196
+    },
+    "accuracy": 65.0,
+    "grounded": 77.86,
+    "accuracy_ci": [
+     65.0,
+     61.0,
+     68.8
+    ],
+    "chi2_lower_bound": 130
+   }
+  }
+ ],
+ "ablation": [
+  {
+   "run": "FiRE",
+   "notes": {
+    "errors": {
+     "E1": 0,
+     "E2": 27,
+     "E3": 0,
+     "E4": 0,
+     "E5": 4,
+     "E6": 0,
+     "total": 31
+    },
+    "accuracy": 94.46,
+    "grounded": 100.0
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 0,
+     "E2": 22,
+     "E3": 0,
+     "E4": 0,
+     "E5": 3,
+     "E6": 0,
+     "total": 25
+    },
+    "accuracy": 95.54,
+    "grounded": 100.0
+   }
+  },
+  {
+   "run": "Construct check off",
+   "notes": {
+    "errors": {
+     "E1": 4,
+     "E2": 26,
+     "E3": 0,
+     "E4": 1,
+     "E5": 4,
+     "E6": 0,
+     "total": 35
+    },
+    "accuracy": 93.75,
+    "grounded": 99.11
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 3,
+     "E2": 23,
+     "E3": 0,
+     "E4": 1,
+     "E5": 3,
+     "E6": 1,
+     "total": 31
+    },
+    "accuracy": 94.46,
+    "grounded": 99.11
+   }
+  },
+  {
+   "run": "Actor and role check off",
+   "notes": {
+    "errors": {
+     "E1": 0,
+     "E2": 26,
+     "E3": 4,
+     "E4": 0,
+     "E5": 4,
+     "E6": 0,
+     "total": 34
+    },
+    "accuracy": 93.93,
+    "grounded": 99.29
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 0,
+     "E2": 22,
+     "E3": 4,
+     "E4": 0,
+     "E5": 3,
+     "E6": 1,
+     "total": 30
+    },
+    "accuracy": 94.64,
+    "grounded": 99.11
+   }
+  },
+  {
+   "run": "Age check off",
+   "notes": {
+    "errors": {
+     "E1": 0,
+     "E2": 25,
+     "E3": 0,
+     "E4": 0,
+     "E5": 19,
+     "E6": 0,
+     "total": 44
+    },
+    "accuracy": 92.14,
+    "grounded": 100.0
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 0,
+     "E2": 21,
+     "E3": 0,
+     "E4": 0,
+     "E5": 15,
+     "E6": 0,
+     "total": 36
+    },
+    "accuracy": 93.57,
+    "grounded": 100.0
+   }
+  },
+  {
+   "run": "Cited-span check off",
+   "notes": {
+    "errors": {
+     "E1": 6,
+     "E2": 21,
+     "E3": 4,
+     "E4": 5,
+     "E5": 5,
+     "E6": 0,
+     "total": 41
+    },
+    "accuracy": 92.68,
+    "grounded": 97.32
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 5,
+     "E2": 18,
+     "E3": 4,
+     "E4": 5,
+     "E5": 4,
+     "E6": 5,
+     "total": 41
+    },
+    "accuracy": 92.68,
+    "grounded": 96.61
+   }
+  },
+  {
+   "run": "All four checks off",
+   "notes": {
+    "errors": {
+     "E1": 13,
+     "E2": 17,
+     "E3": 10,
+     "E4": 10,
+     "E5": 21,
+     "E6": 0,
+     "total": 71
+    },
+    "accuracy": 87.32,
+    "grounded": 94.11
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 11,
+     "E2": 15,
+     "E3": 10,
+     "E4": 9,
+     "E5": 17,
+     "E6": 13,
+     "total": 75
+    },
+    "accuracy": 86.61,
+    "grounded": 92.32
+   }
+  },
+  {
+   "run": "No state space",
+   "notes": {
+    "errors": {
+     "E1": 8,
+     "E2": 47,
+     "E3": 8,
+     "E4": 9,
+     "E5": 7,
+     "E6": 0,
+     "total": 79
+    },
+    "accuracy": 85.89,
+    "grounded": 95.54
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 8,
+     "E2": 43,
+     "E3": 9,
+     "E4": 9,
+     "E5": 5,
+     "E6": 8,
+     "total": 82
+    },
+    "accuracy": 85.36,
+    "grounded": 93.93
+   }
+  },
+  {
+   "run": "Model does the scoring",
+   "notes": {
+    "errors": {
+     "E1": 3,
+     "E2": 30,
+     "E3": 2,
+     "E4": 4,
+     "E5": 6,
+     "E6": 0,
+     "total": 45
+    },
+    "accuracy": 91.96,
+    "grounded": 98.39
+   },
+   "notes+form": {
+    "errors": {
+     "E1": 3,
+     "E2": 25,
+     "E3": 3,
+     "E4": 4,
+     "E5": 4,
+     "E6": 5,
+     "total": 44
+    },
+    "accuracy": 92.14,
+    "grounded": 97.32
+   }
+  }
+ ],
+ "clustered_extreme_notes_only": {
+  "_note": "Supplementary Section S9: effective sample of 40 individuals",
+  "FiRE": [
+   82.8,
+   98.4
+  ],
+  "GPT-5.1": [
+   54.2,
+   81.6
+  ],
+  "Gemini 3.1 Pro, knowledge-matched": [
+   60.0,
+   85.9
+  ]
+ }
+}

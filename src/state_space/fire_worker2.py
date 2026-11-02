@@ -1,33 +1,54 @@
 """
-Clinical State Space Matcher — General Domain Pipeline
+FiRE Pipeline — Worker 2: maps each verified event to the shared state space
 
-Paper concept: this file implements the paper's State Space Mapping
-stage (ii) in full — decomposing each verified event into atomic
-sub-events (Oracle) and mapping each to the shared state-space taxonomy
-or minting a new provisional state when no match exists (Judge/Genesis).
+Paper concept: stage (ii) (Supplementary Material, Section S3).
 
-Pipeline position: Worker 2, run after Worker 1 (fire_stage2_3_single_model.py,
-optionally through Stage 4/5) and before Worker 3 (fire_worker3_general.py).
-Maps validated clinical events to a shared state space taxonomy via Oracle
-(event decomposition) → Global Vector Search → Judge (state matching) →
-Genesis (new state creation) loop. Implements provisional state scoping and
-clinician review gate per paper Section 3.2.
+For each event that Worker 1 kept (CONFIRMED, TENTATIVE or REVIEW_REQUIRED):
+  1. Splitting call (ORACLE_PROMPT, GPT-5.1): the event is split into
+     pieces by clinical domain, and what happened is separated from how the
+     individual responded. Each piece carries a proposed cluster and state,
+     its ages, and a verbatim supporting quote. A piece whose quote is not
+     in the source (70% of the quote's words must appear) is marked
+     UNGROUNDED and not mapped.
+  2. Semantic search over every state in the space visible to this
+     individual (all-MiniLM-L6-v2), not a pre-selected subset of clusters.
+     Candidates scoring >= 0.30 are kept (top 8).
+  3. Matching call (MATCH_JUDGE_PROMPT, the "Judge", GPT-5.1): is the
+     proposal the same clinical mechanism as a candidate? A match below
+     0.30 is refused. If the Judge finds no match but the top candidate is
+     in the proposed cluster with cosine >= 0.82, it is mapped without the
+     Judge. A failed Judge call leaves the piece JUDGE_FAILED (for review)
+     rather than guessing.
+  4. Otherwise a new state is created as provisional. A new cluster name
+     first reuses an existing cluster if it matches one exactly
+     (canonicalised) or by cosine >= 0.80. A provisional state is used at
+     once for the individual whose event created it and hidden from every
+     other individual until a psychotherapist approves it
+     (--export-review / --apply-review).
 
-Main input: a Worker 1 output file (validated events) and the persistent
-state-space JSON database (see fire_state_space_tree.json). Main output:
-the same events annotated with resolved state codes, plus an updated
-state-space database (new provisional states appended). Key assumption:
-each sub-event's supporting_quote must be a verbatim span of the source
-text — the Oracle prompt enforces this as the grounding proof that lets
-new states be trusted enough to add to the shared taxonomy.
+  5. After all events are processed, a same-cluster deduplication sweep
+     merges two states of one cluster whose embeddings have cosine >= 0.82
+     (--dedup-threshold), keeping the permanent or lower-numbered state, and
+     rewrites the event codes; --no-dedup-sweep switches it off. The paper's
+     runs used the default (sweep on).
 
-Key features:
-  - Flat global semantic search across all states (no cluster pre-filtering)
-  - Unified judge with no cross-type veto (same mechanism = same state)
-  - Provisional new states scoped to triggering patient until clinician approval
-  - Deterministic dedup sweep for same-cluster near-duplicates post-run
-  - Grounding proof: all sub-events must be grounded in source clinical text
-  - Cross-process safe writes with merge-on-disk conflict resolution
+The state space is one JSON document of domains -> clusters -> states
+(src/state_space/fire_state_space_tree.json documents the schema). The space
+used in the paper was built from development data, from individuals
+disjoint from the 40 evaluation individuals, and is not released. The file
+passed with --state-space is read and updated in place; keep one file per
+study and pass it explicitly.
+
+Pipeline position: after Worker 1 (Stage 5 output), before Worker 3.
+
+Usage:
+  export OPENAI_API_KEY=...
+  python3 fire_worker2.py validated_events_s5.json --stage1 stage1_output.json \
+      --state-space state_space.json --output final_mapped_events.json
+  python3 fire_worker2.py --state-space state_space.json --export-review review.json
+  python3 fire_worker2.py --state-space state_space.json --apply-review review.json \
+      --patch-events final_mapped_events.json final_mapped_events_reviewed.json
+  python3 fire_worker2.py --selftest
 """
 
 import json
@@ -47,7 +68,14 @@ try:
 except ImportError:
     fcntl = None   # Windows: lock is a no-op (single-process use still safe)
 from typing import Optional
-from sentence_transformers import SentenceTransformer, util
+
+# sentence-transformers is required to run Worker 2 (StateSpaceTree) but not
+# for --selftest or the review commands, so a missing package is reported
+# only when the embedder is actually needed.
+try:
+    from sentence_transformers import SentenceTransformer, util
+except ImportError:          # pragma: no cover - depends on the environment
+    SentenceTransformer = util = None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -255,7 +283,9 @@ class TokenCounter:
 
     @property
     def cost_usd(self) -> float:
-        """Estimated USD cost so far, at the model's per-token rates."""
+        """Running cost estimate. The per-token rates are placeholders, not
+        GPT-5.1's prices; do not report this figure (Supplementary Material,
+        Section S8 reports no cost for this reason)."""
         return (self.prompt_tokens * 0.14 + self.completion_tokens * 0.28) / 1_000_000
 
     def summary(self) -> str:
@@ -410,7 +440,7 @@ def _safe_int(val) -> Optional[int]:
     return None
 
 
-# ── Age extraction — ported from v4.7, generalised (no ACE wording) ───────
+# ── Age extraction (instrument-independent) ───────────────────────────────
 _AGE_TAG_RE        = re.compile(r"\[\s*age\b([^\]]*)\]", re.IGNORECASE)
 _DURATION_UNIT_RE  = re.compile(
     r"^\s*(?:hour|hr|minute|min|second|sec|day|week|month|year|yr)s?\b", re.IGNORECASE)
@@ -725,6 +755,9 @@ class StateSpaceTree:
         """Load the state-space database from `filepath` (or start with
         an empty one) and build its in-memory embedding indexes."""
         self.filepath = filepath
+        if SentenceTransformer is None:
+            raise ImportError("Worker 2 needs the sentence-transformers package "
+                              "(pip install -r requirements.txt)")
         logging.info("Loading SentenceTransformer: all-MiniLM-L6-v2")
         self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
@@ -1626,7 +1659,7 @@ async def main_loop(args: argparse.Namespace) -> None:
 
     pending_for_patient = len(list_provisional_states(db_tree.db, patient_id=patient_id))
 
-    data["pipeline_stage"] = "worker2_v48_general"
+    data["pipeline_stage"] = "worker2_state_space_mapping"
     data["events"]         = all_events
     data["worker2_stats"]  = {
         "eligible_processed":               len(eligible_indices),
@@ -1713,17 +1746,29 @@ def selftest() -> bool:
 # ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Clinical State Space Matcher")
-    parser.add_argument("input", nargs="?")
-    parser.add_argument("--state-space", default="fire_state_space_tree.json")
-    parser.add_argument("--fresh-start", action="store_true")
-    parser.add_argument("--stage1", default=None)
-    parser.add_argument("--output", default="final_mapped_events.json")
-    parser.add_argument("--concurrency", type=int, default=3)
-    parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--keep-resume", action="store_true")
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--verbose", action="store_true")
+    parser = argparse.ArgumentParser(
+        description="FiRE Worker 2 — maps verified events to the shared state space")
+    parser.add_argument("input", nargs="?", help="Stage 5 output (validated_events_s5.json)")
+    parser.add_argument("--state-space", default="fire_state_space_tree.json",
+                        help="State-space JSON; read, and updated in place with new "
+                             "provisional states (default: fire_state_space_tree.json in "
+                             "the current folder; pass it explicitly)")
+    parser.add_argument("--fresh-start", action="store_true",
+                        help="DELETE the --state-space file and start from an empty space")
+    parser.add_argument("--stage1", default=None,
+                        help="stage1_output.json, for section context")
+    parser.add_argument("--output", default="final_mapped_events.json",
+                        help="Output path (default: final_mapped_events.json)")
+    parser.add_argument("--concurrency", type=int, default=3,
+                        help="Events processed in parallel (default: 3)")
+    parser.add_argument("--resume", action="store_true",
+                        help="Skip events completed in an interrupted run "
+                             "(checkpoint: <output>.resume.json)")
+    parser.add_argument("--keep-resume", action="store_true",
+                        help="Keep the resume checkpoint after a successful run")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Print the splitting prompts without calling the API")
+    parser.add_argument("--verbose", action="store_true", help="Debug logging")
     parser.add_argument("--selftest", action="store_true",
                         help="Run offline regression checks and exit")
     parser.add_argument("--no-dedup-sweep", action="store_true",

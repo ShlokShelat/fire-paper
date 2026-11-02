@@ -1,3 +1,22 @@
 .DS_Store
 __pycache__/
 *.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Run artefacts written next to inputs or outputs
+*.resume
+*.resume.json
+*.lock
+*.tmp
+
+# Working folders of pipeline, baseline and example runs
+build/
+runs/
+results_structured/
+results_knowledge/
+
+# Secrets
+.env
+.env.*

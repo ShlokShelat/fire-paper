@@ -1,30 +1,24 @@
 """
 FiRE Pipeline — Stage 5: Rescue Verifier + Semantic Deduplication
 ==================================================================
-Paper concept: a supplementary pass beyond Verification (stage iii) —
-rescuing wrongly-discarded events and merging accidental sentence-level
-duplicates. Like Stage 4, it is NOT one of the paper's four described
-stages; see point 2 below.
+Paper concept: one of the passes that act on the result of Verification
+(stage iii), described in Supplementary Material, Section S1: it rescues
+wrongly discarded events and removes duplicate events within one section
+of a note.
 
-IMPORTANT — READ BEFORE USING THIS MODULE
-------------------------------------------------------------------
-1. PAPER ALIGNMENT — MODEL (RESOLVED). The paper's central
-   methodological claim is a same-model ablation: "FiRE uses GPT-5.1 as
-   its own extraction model, so the comparison between FiRE and GPT-5.1
-   is a same-model ablation... Because FiRE and one baseline share the
-   same underlying model, the gap is attributable to symbolic
-   discipline rather than model strength." The rescue verifier now
-   calls RESCUE_MODEL_NAME = "gpt-5.1", the same model Worker 1's
-   extractor uses, via the OpenAI Chat Completions endpoint.
+Rescue: a discarded event is restored (status TENTATIVE, flagged for
+review) when a separate GPT-5.1 call answers Y to "is this clinically
+significant?". If the call fails or no API key is set, the event is also
+kept, but labelled "rescued_api_unavailable" or "rescued_no_llm" so it is
+never confused with a real Y. Two kinds of discard are never sent to the
+rescue call: an event whose text reads as therapist commentary
+(_COMMENTARY_PATTERNS, labelled "commentary_not_rescued") and an event
+Stage 4 flagged (stage4_passed false). GPT-5.1 is the same model as the extractor,
+which keeps the paper's same-model comparison intact.
 
-2. PAPER ALIGNMENT — STAGES (still open). The paper describes four FiRE
-   stages; a rescue-and-deduplicate pass is not one of them and is not
-   mentioned anywhere in the manuscript, same caveat as Stage 4. This
-   is a documentation decision, not something this file can resolve on
-   its own — see the Stage 4 file's docstring for the same discussion.
-
-Pipeline position: an optional fifth pass, run after Stage 4
-(fire_stage4.py) and before Worker 2 (fire_worker2.py).
+Pipeline position: the last step of Worker 1, run after Stage 4
+(fire_stage4.py) and before Worker 2 (fire_worker2.py). Every main result
+in the paper was produced with both jobs on (the default).
 
 Main input: a Stage 4 output file (validated_events_s4.json), optionally
 paired with Stage 1's tagged-sentence list for rescue-verifier context.
@@ -57,9 +51,9 @@ JOB 2 — SEMANTIC DEDUPLICATION
   (cosine >= 0.88 or Jaccard >= 0.60) within the same group: keep the
   higher-confidence one, mark the other DEDUP.
 
-  This catches the pattern where old per-sentence mode caused one LLM
-  to extract several sub-events of the same incident that should be one
-  compound event. It must never merge the SAME construct recurring at
+  This catches the case where the extraction model returns several
+  near-identical events for one incident in one section. It must never
+  merge the SAME construct recurring at
   DIFFERENT life periods (e.g. emotional abuse at ages 0-8 and again at
   12-16) — that recurrence is exactly what the paper's algebra encodes
   via a feedback edge (a -> a^3); collapsing it into one event would
@@ -93,16 +87,15 @@ from typing import Optional
 # 1.  CONSTANTS
 # ─────────────────────────────────────────────────────────────
 
+# The two similarity thresholds are the deduplication thresholds of
+# Supplementary Material, Section S8 (used by run_dedup, despite the
+# RESCUE_ prefix). RESCUE_STATUSES lists the statuses the rescue job examines.
 RESCUE_SIM_THRESHOLD  = 0.88   # cosine: near-identical events
 RESCUE_JAC_THRESHOLD  = 0.60   # Jaccard fallback
 RESCUE_STATUSES       = {"DISCARD"}   # only rescue these statuses
 
-RESCUE_SIM_THRESHOLD  = 0.88   # cosine: near-identical events
-RESCUE_JAC_THRESHOLD  = 0.60   # Jaccard fallback
-RESCUE_STATUSES       = {"DISCARD"}   # only rescue these statuses
-
-# Same model as Worker 1's extractor, so the paper's same-model
-# ablation claim isn't broken by the rescue pass. OpenAI Chat Completions
+# Same model as Worker 1's extractor (GPT-5.1 is the only language model
+# FiRE calls; Supplementary Material, Section S1). OpenAI Chat Completions
 # endpoint.
 RESCUE_MODEL_NAME  = "gpt-5.1"
 RESCUE_API_URL     = "https://api.openai.com/v1/chat/completions"
@@ -595,23 +588,24 @@ def main():
     context), run the rescue verifier and/or deduplication job in order,
     and write the resulting events plus stage5_stats to --output."""
     p = argparse.ArgumentParser(
-        description="FiRE Stage 5 — Rescue Verifier + Semantic Deduplication")
+        description="FiRE Worker 1, Stage 5: rescue discarded events (GPT-5.1) and "
+                    "remove duplicates within one note section")
     p.add_argument("input", nargs="?",
                    help="Path to validated_events_s4.json (Stage 4 output)")
     p.add_argument("--stage1", default=None,
                    help="Path to stage1_output.json (for section context)")
-    p.add_argument("--output", "-o", default="validated_events_s5.json")
+    p.add_argument("--output", "-o", default="validated_events_s5.json",
+                   help="Output path (default: validated_events_s5.json)")
     p.add_argument("--rescue-model", default=RESCUE_MODEL_NAME,
-                   help=f"Rescue model name (default: {RESCUE_MODEL_NAME}, same "
-                        "model as Worker 1's extractor — see module docstring "
-                        "before pointing this at a different model)")
+                   help=f"Rescue model name (default: {RESCUE_MODEL_NAME}, the "
+                        "extraction model; the paper's runs used the default)")
     p.add_argument("--no-rescue",  action="store_true",
                    help="Skip rescue verifier (run dedup only)")
     p.add_argument("--no-dedup",   action="store_true",
                    help="Skip deduplication (run rescue only)")
     p.add_argument("--selftest", action="store_true",
                    help="Run offline regression checks and exit")
-    p.add_argument("--verbose", "-v", action="store_true")
+    p.add_argument("--verbose", "-v", action="store_true", help="Debug logging")
     args = p.parse_args()
 
     logging.basicConfig(
@@ -627,9 +621,8 @@ def main():
     if args.rescue_model != RESCUE_MODEL_NAME:
         logging.warning(
             "Rescue model overridden to '%s' (default is '%s', the same "
-            "model Worker 1's extractor uses). Using a different model "
-            "here re-introduces the same-model-ablation problem described "
-            "in the module docstring.", args.rescue_model, RESCUE_MODEL_NAME)
+            "model Worker 1's extractor uses). The paper's runs used the "
+            "default.", args.rescue_model, RESCUE_MODEL_NAME)
 
     api_key = os.environ.get(RESCUE_API_KEY_ENV)
     if not api_key and not args.no_rescue:
@@ -693,10 +686,9 @@ def main():
         "dedup":  dedup_stats,
         "status_before": dict(status_before),
         "status_after":  dict(status_after),
-        "note": ("Rescue uses the same model as Worker 1's extractor (see "
-                 "rescue_model above); this pass is still not described as "
-                 "a separate stage in the paper's four-stage architecture, "
-                 "see module docstring."),
+        "note": ("Stage 5 of Worker 1 (Supplementary Material, Section S1): "
+                 "rescue of discarded events with the extraction model, then "
+                 "deduplication within one note section."),
     }
     atomic_write_json(args.output, data)
     print(f"\n[SAVE] {args.output}")

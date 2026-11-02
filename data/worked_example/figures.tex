@@ -1,9 +1,11 @@
-% [Main paper, Section 4, worked example -- both TikZ figures, reproduced
-% verbatim from the main paper's LaTeX source. Requires the tikz package.]
+% The two TikZ figures of the main paper's worked example (Section "FIRE Model
+% on the Worked Example"): Fig. 4, the full trajectory, and Fig. 5, the ACE
+% subgraph. Copied verbatim from the paper's LaTeX source. Requires tikz with
+% \usetikzlibrary{arrows.meta,positioning,calc}.
 
 \begin{figure*}[t]
 \centering
-\resizebox{\textwidth}{!}{%
+\resizebox{0.70\textwidth}{!}{%
 \begin{tikzpicture}[>=Stealth, font=\small,
    ss/.style={circle,draw,fill=green!30,minimum size=6.5mm,inner sep=0pt},
    st/.style={circle,draw,fill=yellow!45,minimum size=6.5mm,inner sep=0pt},
@@ -65,10 +67,9 @@ feedback. Execution runs from $q_0$ (green) to $q_f$ (red).}
 \label{fig:fulltrajectory}
 \end{figure*}
 
-
 \begin{figure}[t]
 \centering
-\resizebox{\columnwidth}{!}{%
+\resizebox{0.75\columnwidth}{!}{%
 \begin{tikzpicture}[>=Stealth, font=\small,
    ss/.style={circle,draw,fill=green!30,minimum size=7mm,inner sep=0pt},
    st/.style={circle,draw,fill=yellow!45,minimum size=7mm,inner sep=0pt},
@@ -80,23 +81,19 @@ feedback. Execution runs from $q_0$ (green) to $q_f$ (red).}
  \node[st]  (qa)  at (2,1.1)  {$q_a$};
  \node[st]  (qb)  at (2,0)    {$q_b$};
  \node[st]  (qc)  at (2,-1.1) {$q_c$};
- \node[eps] (e1)  at (4,0)    {$\varepsilon$};
- \node[st]  (qd)  at (5.5,0)  {$q_d$};
- \node[eps] (e2)  at (7,0)    {$\varepsilon$};
- \node[st]  (qa2) at (8.9,1.1){$q_{a'}$};
- \node[st]  (qe)  at (8.9,-1.1){$q_e$};
- \node[eps] (e3)  at (10.8,0) {$\varepsilon$};
- \node[fin] (qf)  at (12.3,0) {$q_f$};
+ \node[eps] (e1)  at (4.2,0)  {$\varepsilon$};
+ \node[st]  (qa2) at (6.4,1.1){$q_{a'}$};
+ \node[st]  (qe)  at (6.4,-1.1){$q_e$};
+ \node[eps] (e3)  at (8.6,0)  {$\varepsilon$};
+ \node[fin] (qf)  at (10.1,0) {$q_f$};
  \draw[tr] (q0) -- node[above,sloped]{$a$} (qa);
  \draw[tr] (q0) -- node[above]{$b$} (qb);
  \draw[tr] (q0) -- node[below,sloped]{$c$} (qc);
  \draw[tr] (qa) -- node[above,sloped]{$\varepsilon$} (e1);
  \draw[tr] (qb) -- node[above]{$\varepsilon$} (e1);
  \draw[tr] (qc) -- node[below,sloped]{$\varepsilon$} (e1);
- \draw[tr] (e1) -- node[above]{$d$} (qd);
- \draw[tr] (qd) -- node[above]{$\varepsilon$} (e2);
- \draw[tr] (e2) -- node[above,sloped]{$a$} (qa2);
- \draw[tr] (e2) -- node[below,sloped]{$e$} (qe);
+ \draw[tr] (e1) -- node[above,sloped]{$a$} (qa2);
+ \draw[tr] (e1) -- node[below,sloped]{$e$} (qe);
  \draw[tr] (qe) -- node[below,sloped]{$\varepsilon$} (e3);
  \draw[tr] (qa2) -- node[above,sloped]{$\varepsilon$} (e3);
  \draw[tr] (e3) -- node[above]{$\varepsilon$} (qf);
@@ -104,6 +101,6 @@ feedback. Execution runs from $q_0$ (green) to $q_f$ (red).}
  \draw[fb] (qa) to[bend right=10] node[above]{$a$} (qa2);
  \draw[fb] (qa2) to[bend right=22] node[above]{$a$} (qa);
 \end{tikzpicture}}
-\caption{\textbf{ACE subgraph.} The projection of Figure~\ref{fig:fulltrajectory} onto ACE clusters.}
+\caption{\textbf{ACE subgraph}, projected from Figure~\ref{fig:fulltrajectory}.}
 \label{fig:acesubgraph}
 \end{figure}

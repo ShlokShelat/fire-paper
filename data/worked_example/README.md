@@ -1,32 +1,40 @@
 # Worked example
 
-The anonymized consultation-note excerpt used as the main paper's Section 4
-worked example, reproduced as a small, checkable demo.
+The note excerpt the main paper uses as its worked example, with the
+expected output, as a small offline regression check. It is the only
+note text in this repository; the evaluation notes cannot be released.
 
 ## Files
 
-- `input.txt` -- the six-event excerpt (with ages), verbatim from the main
-  paper.
-- `expected_mapping.json` -- the event-to-state-to-ACE-item table, verbatim
-  from the main paper's own table for this example.
-- `expected_output.txt` -- the expected ACE-projected symbolic expression
-  `(a + b + c^2) . d . (e + a^3)`, with the reasoning for each exponent, plus
-  a descriptive (not independently re-verified) account of the full
-  trajectory's structure before ACE projection. Read the confidence note
-  inside this file before relying on the full-trajectory portion for a
-  strict regression test; the ACE-projected expression is the
-  well-verified part.
-- `figures.tex` -- the two TikZ figures (full trajectory, ACE subgraph)
-  reproduced verbatim from the main paper's LaTeX source.
+- `input.txt`: the six-line excerpt with ages, verbatim from the main paper.
+- `expected_mapping.json`: the event, state, cluster and item of each event,
+  verbatim from the main paper's Table I.
+- `worker2_output.json`: the same excerpt in the shape `fire_worker2.py`
+  writes (one event per note line; every piece carries that line's source
+  sentence, its own supporting quote, ages, state code and cluster).
+  Written by hand from the paper, not produced by a model, so the later
+  stages can be checked without an API key.
+- `expected_output.txt`: the expected full trajectory and the ACE expression
+  `(a + b + c^2) . (e + a^3)`, ACE = 4, items {1, 2, 4, 11}, with the reason
+  for each exponent.
+- `figures.tex`: the paper's Figs. 4 and 5 (full trajectory, ACE subgraph),
+  copied from its LaTeX source.
 
-## How to use this
+## Running it
 
-If you populate `src/algebra/fire_worker3_general.py` and
-`src/instruments/fire_worker3_ace.py` with the real pipeline
-implementation, running `input.txt` through extraction, mapping, and the
-trajectory algebra should reproduce `expected_mapping.json`'s event-to-state
-mapping and `expected_output.txt`'s ACE-projected expression exactly. This
-is the same check the original pipeline's own self-test suite uses (see
-technical_appendix.pdf, Section 7, "Regression-tested corrections"): if a
-future change to the union, self-loop, or feedback logic breaks this exact
-worked example, that's a signal to look closely before trusting the change.
+```
+python3 src/algebra/fire_worker3_general.py data/worked_example/worker2_output.json -o worker3_output.json
+python3 src/instruments/fire_worker3_ace.py worker3_output.json -o worker3_ace_output.json --verify
+python3 src/instruments/fire_worker4_ace.py worker3_ace_output.json -o ace_scorecard.json
+```
+
+or `make worked-example`, which runs the same chain through
+`scripts/run_fire.py`; with the assertions, `python3
+tests/test_worked_example_chain.py` (also runs under pytest). `--verify` without `--verify-llm` runs the item
+check's deterministic part only, so no API key is needed. The front end
+(preprocessing, extraction, verification and Worker 2) calls a model and is
+not exercised here; `worker2_output.json` stands in for its output.
+
+The implementation assigns symbols in order of first onset, so its letters
+for the non-ACE clusters differ from the paper's (see `expected_output.txt`);
+the ACE expression and score are identical.

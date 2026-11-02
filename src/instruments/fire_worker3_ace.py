@@ -1,28 +1,30 @@
-"""FiRE Pipeline — Worker 3 ACE: projects the general Worker 3 trajectory to the ACE subgraph.
+"""FiRE Pipeline — Worker 3 (ACE): projects the general trajectory to ACE and
+checks each projected item.
 
-Paper concept: this file implements Projection, the instrument-specific
-half of the paper's stage (iv) — restricting the general FiRE
-Expression (Expression Construction, from fire_worker3_general.py) down
-to the subgraph relevant to one instrument (here, the 14-item ACE
-questionnaire), before Scoring (fire_worker4_ace.py) runs on what
-survives. The optional --verify pass is an additional grounding check
-on top of Projection, not the paper's stage (iii) Verification itself
-(that already ran in Worker 1, Stage 3).
+Paper concept: the instrument-specific half of stage (iv). It reads the
+trajectory built by Worker 3 (general, fire_worker3_general.py) and keeps
+the states whose clusters resolve to one of the 14 ACE items through the
+cluster -> item table (ace14.py) and that fall inside the 0-18 window
+(Supplementary Material, Section S1). The trajectory operators are not
+re-implemented here: after projection, unions, self-loops and feedback are
+recomputed with Worker 3 (general)'s own functions.
 
-Pipeline position: instrument-specific projection stage, run after the
-general Worker 3 (fire_worker3_general.py) has built the full patient
-trajectory, and before Worker 4 ACE scoring (fire_worker4_ace.py).
-Main input: a general Worker 3 output file (the full DFA/trajectory,
-all resolved states). Main output: the same trajectory restricted to
-ACE-relevant states only (states projecting to one of the 14 ACE items,
-within the 0-18 age window), plus an optional grounding-verification
-pass over each surviving record. Key assumption: projection only
-removes states/entries — it never invents or reorders the underlying
-trajectory structure built by the general Worker 3 stage.
+Item check (--verify, with --verify-llm for the model call). For each
+projected item the model answers the item's defining sub-questions from
+the source, and a second, independent model call must confirm any removal
+(Supplementary Material, Section S1). Every main result in the paper was
+produced with this check on, i.e. with --verify --verify-llm. Without an API
+key the deterministic part of the check still runs, and a failing item is
+kept and flagged drop_unconfirmed rather than removed.
+
+Pipeline position: after Worker 3 (general), before Worker 4 (ACE).
+Input: a Worker 3 (general) output JSON. Output: the ACE expression,
+alphabet, resolved states, excluded events (with the reason), entries left
+out for missing age evidence, and the item-check report.
 
 Usage:
-  python3 fire_worker3_ace.py w3_general.json -o ace_out.json
-  python3 fire_worker3_ace.py w3_general.json -o ace_out.json --verify --verify-llm
+  python3 fire_worker3_ace.py worker3_output.json -o worker3_ace_output.json --verify --verify-llm
+  python3 fire_worker3_ace.py worker3_output.json -o worker3_ace_output.json --verify   # offline checks only
   python3 fire_worker3_ace.py --selftest
 """
 
@@ -38,7 +40,13 @@ from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import Optional
 
-import fire_worker3_general as W3G
+_HERE = Path(__file__).resolve().parent
+for _p in (_HERE, _HERE.parent / "algebra"):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+import ace14                      # noqa: E402  (shared ACE-14 table, see ace14.py)
+import fire_worker3_general as W3G  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────
@@ -85,202 +93,190 @@ def _build_llm_payload(model_name: str, system_prompt: str, user_prompt: str,
 # ─────────────────────────────────────────────────────────────
 
 # ACE is childhood-scoped, 0..18 INCLUSIVE. Age 18 is the last in-window year.
-ACE_MIN_AGE, ACE_MAX_AGE = 0, 18
+ACE_MIN_AGE, ACE_MAX_AGE = ace14.MIN_AGE, ace14.MAX_AGE
 
 TIER_ORDER = W3G.TIER_ORDER
 TIER_MARK  = W3G.TIER_MARK
 
-# Cluster name → ACE item number for the 14-item Indian ACE instrument.
-_W3_CLUSTER_ITEM = {
-    "emotional abuse":               1,
-    "verbal abuse":                  1,
-    "verbal/emotional abuse":        1,
-    "emotional/verbal abuse":        1,
-    "psychological abuse":           1,
-    "physical abuse":                2,
-    "sexual abuse":                  3,
-    "sexual molestation":            3,
-    "inappropriate touch":           3,
-    "emotional neglect":             4,
-    "emotional unavailability":      4,
-    "felt unloved":                  4,
-    "feeling unwanted":              4,
-    "feeling unloved":               4,
-    "unwanted child":                4,
-    "physical neglect":              5,
-    "material neglect":              5,
-    "parental separation":           6,
-    "separation or divorce":         6,
-    "parental divorce":              6,
-    "divorce":                       6,
-    "domestic violence against mother": 7,
-    "domestic violence":             7,
-    "abuse of mother":               7,
-    "violence against mother":       7,
-    "household substance":           8,
-    "substance abuse":               8,
-    "substance use":                 8,
-    "alcoholism":                    8,
-    "alcoholic":                     8,
-    "parental alcoholism":           8,
-    "problem drinking":              8,
-    "drug use":                      8,
-    "household mental illness":      9,
-    "household mental":              9,
-    "mental illness or suicide":     9,
-    "mental illness":                9,
-    "parental depression":           9,
-    "household suicide":             9,
-    "community violence":            10,
-    "dangerous neighbourhood":       10,
-    "dangerous neighborhood":        10,
-    "neighbourhood violence":        10,
-    "neighborhood violence":         10,
-    "peer or sibling bullying":      11,
-    "sibling bullying":              11,
-    "peer bullying":                 11,
-    "bullying":                      11,
-    "peer rejection":                12,
-    "peer rejection or isolation":   12,
-    "rejection or isolation":        12,
-    "social isolation":              12,
-    "peer isolation":                12,
-    "loneliness":                    12,
-    "isolation":                     12,
-    "childhood poverty":             13,
-    "material deprivation":          13,
-    "financial hardship":            13,
-    "economic hardship":             13,
-    "poverty":                       13,
-    "parental conflict":             14,
-    "interparental conflict":        14,
-    "parental fighting":             14,
-    "parental fights":               14,
-    "parents fighting":              14,
-    "parents fought":                14,
-    "verbal conflict":               14,
-    "marital conflict":              14,
-    "spousal conflict":              14,
-}
+# The cluster -> item table lives in ace14.py, shared with Worker 4, so the
+# projection rule and the scoring rule are one table, not two copies.
+_W3_CLUSTER_ITEM = ace14.CLUSTER_ITEM
 
 
 def _cluster_item(cluster_name: str):
-    """Resolve a cluster name to its ACE item number, or None."""
-    cn = str(cluster_name or "").lower().strip()
-    if not cn:
-        return None
-    for token in sorted(_W3_CLUSTER_ITEM, key=len, reverse=True):
-        if token in cn:
-            return _W3_CLUSTER_ITEM[token]
-    _conflict = any(w in cn for w in ("conflict", "fight", "fought", "arguing",
-                                      "argument", "quarrel"))
-    _between_parents = ("parent" in cn or "marital" in cn or "spousal" in cn
-                        or "between" in cn)
-    if _conflict and _between_parents:
-        return 14
-    return None
-
-
-def _ace_items_for_entry(entry: dict, cluster_name: str) -> list:
-    """ACE item(s) for an entry: resolved from cluster name plus any ace_items_hint."""
-    items = []
-    ci = _cluster_item(cluster_name)
-    if ci is not None:
-        items.append(ci)
-    hints = entry.get("ace_items_hint") or []
-    for h in hints:
-        try:
-            hi = int(h)
-        except (TypeError, ValueError):
-            continue
-        if 1 <= hi <= 14 and hi not in items:
-            items.append(hi)
-    return items
+    """Resolve a cluster name to its ACE-14 item number, or None."""
+    return ace14.cluster_to_item(cluster_name)
 
 
 # ─────────────────────────────────────────────────────────────
 # 1.  PROJECTION
 # ─────────────────────────────────────────────────────────────
 
-def project_to_ace(general_output: dict) -> tuple:
-    """Project the general Worker 3 trajectory to the ACE subgraph.
-    Returns (ace_blocks, ace_feedbacks, excluded).
-    """
-    import copy
+def _block_is_no_age(b: dict) -> bool:
+    """A block whose entries all lack age evidence (placed in the no-age tier)."""
+    return bool(b.get("entries")) and all(e.get("is_no_age") for e in b["entries"])
 
-    raw_blocks = general_output.get("blocks") or []
-    excluded = []
-    survivors = []
 
-    # Phase 1: keep only entries that map to an ACE item and fall inside
-    # the 0-18 age window (clamping an in-window onset whose end extends
-    # past 18, rather than dropping the whole entry).
-    for raw_b in raw_blocks:
-        b = copy.deepcopy(raw_b)
-        cluster_name = b.get("cluster_name", "")
-        kept_entries = []
-        block_ace_items = []
-
-        for e in b.get("entries", []):
-            event_text = e.get("event") or ""
-            state_code = e.get("state_code")
-            items = _ace_items_for_entry(e, cluster_name)
-
-            if not items:
-                excluded.append({"event": event_text, "reason": "not_ace_relevant",
-                                 "state_code": state_code})
-                continue
-
-            onset_i = e.get("onset_age")
-            end_i   = e.get("end_age")
-            if onset_i is not None and onset_i >= ACE_MAX_AGE + 1:
-                excluded.append({"event": event_text, "reason": "out_of_window",
-                                 "detail": f"onset_age={onset_i} >= {ACE_MAX_AGE + 1} "
-                                           f"(ACE window is {ACE_MIN_AGE}-{ACE_MAX_AGE} inclusive)",
-                                 "state_code": state_code})
-                continue
-
-            age_clamped = False
-            if onset_i is not None and end_i is not None and end_i > ACE_MAX_AGE:
-                e["end_age"] = ACE_MAX_AGE
-                age_clamped = True
-            e["age_clamped"] = age_clamped
-            e["ace_items"] = items
-            for it in items:
-                if it not in block_ace_items:
-                    block_ace_items.append(it)
-            kept_entries.append(e)
-
-        if not kept_entries:
-            continue
-
-        b["entries"] = kept_entries
-        b["codes"] = list(dict.fromkeys(
-            e["state_code"] for e in kept_entries if e.get("state_code")))
-        survivors.append((b, block_ace_items))
-
-    # Phase 2: a union group that lost enough members to drop below 2
-    # survivors is no longer a real union — demote it to a plain block.
+def _demote_broken_unions(blocks: list) -> None:
+    """A union group left with fewer than 2 members is no longer a union."""
     by_ug = defaultdict(list)
-    for b, _ in survivors:
+    for b in blocks:
         if b.get("union_group"):
             by_ug[b["union_group"]].append(b)
-    for ug, members in by_ug.items():
+    for members in by_ug.values():
         if len(members) < 2:
             for b in members:
                 b["union_group"] = None
 
-    # Phase 3: keep only feedback links whose both endpoints survived projection.
-    survivor_node_ids = {b["node_id"] for b, _ in survivors}
-    all_feedbacks = general_output.get("feedback_loops") or []
-    ace_feedbacks = [
-        f for f in all_feedbacks
-        if f.get("earlier_node") in survivor_node_ids
-        and f.get("later_node") in survivor_node_ids
-    ]
 
-    ace_blocks = [b for b, _ in survivors]
-    return ace_blocks, ace_feedbacks, excluded
+def _merge_contiguous_slices(blocks: list) -> list:
+    """Re-merge neighbouring interval slices that became identical once
+    non-ACE members were dropped: same tier, touching intervals, and the
+    same set of cluster symbols. Without this, an ACE state that was cut
+    into two slices only because a non-ACE state started part-way through
+    would print twice. Exponents and feedback are recomputed afterwards
+    (`_tidy`), so only intervals, entries and codes are merged here."""
+    slices = []                       # [(tier, interval, [blocks])] in order
+    for b in blocks:
+        key = (b["tier"], tuple(b["interval"]))
+        if slices and slices[-1][0] == key:
+            slices[-1][1].append(b)
+        else:
+            slices.append((key, [b]))
+
+    merged = []
+    for key, members in slices:
+        if merged and not _block_is_no_age(members[0]):
+            pkey, pmembers = merged[-1]
+            same_syms = {m["cluster"] for m in members} == {m["cluster"] for m in pmembers}
+            touching = key[1][0] == pkey[1][1] + 1
+            if pkey[0] == key[0] and touching and same_syms \
+                    and not _block_is_no_age(pmembers[0]):
+                by_sym = {m["cluster"]: m for m in pmembers}
+                for m in members:
+                    tgt = by_sym[m["cluster"]]
+                    tgt["interval"] = [tgt["interval"][0], m["interval"][1]]
+                    seen = {e.get("event_uid") for e in tgt["entries"]}
+                    tgt["entries"] += [e for e in m["entries"] if e.get("event_uid") not in seen]
+                    tgt["codes"] = list(dict.fromkeys(tgt["codes"] + m["codes"]))
+                new_key = (pkey[0], (pkey[1][0], key[1][1]))
+                merged[-1] = (new_key, pmembers)
+                continue
+        merged.append((key, list(members)))
+    return [b for _, ms in merged for b in ms]
+
+
+def _tidy(blocks: list) -> tuple:
+    """Re-derive structure from the entries that remain after projection or
+    verification removed some: demote broken unions, re-merge identical
+    neighbouring slices, then recompute each block's self-loop exponent and
+    the feedback links with the general Worker 3's own functions, so the
+    algebra stays implemented once and reflects only surviving evidence.
+    Returns (blocks, feedbacks)."""
+    _demote_broken_unions(blocks)
+    blocks = _merge_contiguous_slices(blocks)
+    for b in blocks:
+        b["is_self_loop"] = W3G._self_loops(b["entries"])
+        b["exponent"] = 2 if b["is_self_loop"] else 1
+    feedbacks = W3G.detect_feedbacks(blocks)
+    fb_count = defaultdict(int)
+    for f in feedbacks:
+        fb_count[f["later_node"]] += 1
+    for b in blocks:
+        b["feedback_count"] = fb_count[b["node_id"]]
+    return blocks, feedbacks
+
+
+def project_to_ace(general_output: dict) -> tuple:
+    """Project the general Worker 3 trajectory to the ACE subgraph.
+
+    Keeps an entry only if its cluster resolves to one of the 14 items
+    (ace14.item_for_entry), and keeps a timeline slice only inside the
+    0-18 window: a slice that starts after 18 is dropped, and a slice that
+    straddles 18 is cut at 18, so no adult part of a span can appear in the
+    ACE expression. Each entry is also checked on its own onset, since a
+    slice can hold an entry that starts after 18 (an adult occurrence of a
+    cluster can share a teenage-tier slice). An ACE entry with no age
+    evidence cannot be shown to fall inside the window, so it is left out
+    of the expression and the score until a psychotherapist confirms its
+    age; it is listed in `age_unverified` so the item is visible, not lost.
+    Returns (ace_blocks, ace_feedbacks, excluded, age_unverified).
+    """
+    import copy
+
+    raw_blocks = general_output.get("blocks") or []
+    excluded, age_unverified = [], []
+    reported = set()
+
+    def _exclude(e, reason, detail=None, item=None):
+        key = (e.get("event_uid") or e.get("event"), reason)
+        if key in reported:
+            return
+        reported.add(key)
+        row = {"event": e.get("event") or "", "reason": reason,
+               "state_code": e.get("state_code"), "event_uid": e.get("event_uid")}
+        if detail:
+            row["detail"] = detail
+        if item is not None:
+            # Kept so the notes-plus-form step (fire_reconcile_ace.py) can cite
+            # an after-18 event as evidence that the item does not count.
+            row.update({"ace_item": item, "source_sentence": e.get("source_sentence"),
+                        "onset_age": e.get("onset_age"), "end_age": e.get("end_age")})
+        excluded.append(row)
+
+    survivors = []
+    for raw_b in raw_blocks:
+        b = copy.deepcopy(raw_b)
+        cluster_name = b.get("cluster_name", "")
+        no_age = _block_is_no_age(b)
+        lo, hi = b["interval"]
+
+        kept_entries = []
+        for e in b.get("entries", []):
+            item, source = ace14.item_for_entry(e, e.get("cluster_name") or cluster_name)
+            if item is None:
+                _exclude(e, "not_ace_relevant")
+                continue
+            if no_age:
+                _exclude(e, "no_age_pending_review",
+                         "no age evidence: left out of the ACE score until a "
+                         "psychotherapist confirms the age")
+                if e.get("event_uid") not in {x["event_uid"] for x in age_unverified}:
+                    age_unverified.append({"event_uid": e.get("event_uid"),
+                                           "state_code": e.get("state_code"),
+                                           "cluster_name": e.get("cluster_name") or cluster_name,
+                                           "event": e.get("event"),
+                                           "source_sentence": e.get("source_sentence"),
+                                           "ace_item": item})
+                continue
+            onset = e.get("onset_age")
+            if lo > ACE_MAX_AGE or (onset is not None and onset > ACE_MAX_AGE):
+                _exclude(e, "out_of_window",
+                         f"onset {onset}, slice {lo}-{hi}: starts after {ACE_MAX_AGE} "
+                         f"(ACE window is {ACE_MIN_AGE}-{ACE_MAX_AGE} inclusive)",
+                         item=item)
+                continue
+            e["ace_item"] = item
+            e["ace_item_source"] = source
+            end = e.get("end_age")
+            e["age_clamped"] = end is not None and end > ACE_MAX_AGE
+            if e["age_clamped"]:
+                e["original_end_age"] = end
+                e["end_age"] = ACE_MAX_AGE
+            kept_entries.append(e)
+
+        if not kept_entries:
+            continue
+        if hi > ACE_MAX_AGE:
+            b["interval"] = [lo, ACE_MAX_AGE]
+            b["interval_clamped"] = True
+        b["entries"] = kept_entries
+        b["codes"] = list(dict.fromkeys(e["state_code"] for e in kept_entries
+                                        if e.get("state_code")))
+        survivors.append(b)
+
+    ace_blocks, ace_feedbacks = _tidy(survivors)
+    return ace_blocks, ace_feedbacks, excluded, age_unverified
 
 
 def _rebuild_tiers(ace_blocks: list) -> "OrderedDict":
@@ -348,9 +344,9 @@ def build_ace_expression_from_projection(ace_blocks: list, feedbacks: list) -> d
                     display_age += f" (end clamped to {ACE_MAX_AGE})"
             ace_items = []
             for e in b["entries"]:
-                for it in (e.get("ace_items") or []):
-                    if it not in ace_items:
-                        ace_items.append(it)
+                it = e.get("ace_item")
+                if it is not None and it not in ace_items:
+                    ace_items.append(it)
             perp = next((e.get("perpetrator") or e.get("perpetrator_class")
                         for e in b["entries"] if e.get("perpetrator") or e.get("perpetrator_class")), None)
             descriptions = []
@@ -413,7 +409,8 @@ def build_ace_expression_from_projection(ace_blocks: list, feedbacks: list) -> d
                     "confidence": round(e.get("combined_confidence", 0.0), 3),
                     "experience_type": e.get("experience_type", "unknown"),
                     "event": e.get("event", ""), "source_sentence": e.get("source_sentence", ""),
-                    "ace_items_hint": e.get("ace_items"),
+                    "ace_item": e.get("ace_item"),
+                    "ace_item_source": e.get("ace_item_source"),
                     "perpetrator_class": e.get("perpetrator_class"),
                 }
             else:
@@ -438,45 +435,50 @@ def build_ace_expression_from_projection(ace_blocks: list, feedbacks: list) -> d
 
 
 def _flatten_ace_records(ace_blocks: list) -> list:
-    """Flatten projected blocks into one record per entry."""
-    out = []
+    """One record per projected sub-event (event_uid), however many
+    interval slices it spans, so each is verified exactly once."""
+    out, by_uid = [], {}
     for b in ace_blocks:
         for e in b["entries"]:
-            out.append({
+            uid = e.get("event_uid") or f"{e.get('state_code')}:{e.get('event')}"
+            if uid in by_uid:
+                by_uid[uid]["node_ids"].append(b["node_id"])
+                continue
+            # Verification judges the finding against the source, so it sees the
+            # real span ("15 to 25"), not the end clamped to 18 for projection.
+            rec = {
+                "event_uid": uid,
                 "state_code": e.get("state_code"), "cluster_name": b["cluster_name"],
                 "event": e.get("event"), "source_sentence": e.get("source_sentence"),
-                "onset_age": e.get("onset_age"), "end_age": e.get("end_age"),
-                "ace_items_hint": e.get("ace_items"),
+                "onset_age": e.get("onset_age"),
+                "end_age": e.get("original_end_age", e.get("end_age")),
+                "ace_item": e.get("ace_item"), "ace_item_source": e.get("ace_item_source"),
                 "perpetrator": e.get("perpetrator"), "perpetrator_class": e.get("perpetrator_class"),
                 "supporting_quote": e.get("supporting_quote"), "quote_grounded": e.get("quote_grounded"),
-                "node_id": b["node_id"],
-            })
+                "node_ids": [b["node_id"]],
+            }
+            by_uid[uid] = rec
+            out.append(rec)
     return out
 
 
-def remove_state_codes_from_blocks(ace_blocks: list, codes_to_remove: set) -> list:
-    """Remove entries by state code and re-derive union membership."""
-    if not codes_to_remove:
-        return ace_blocks
+def remove_entries_from_blocks(ace_blocks: list, feedbacks: list, uids_to_remove: set) -> tuple:
+    """Remove specific sub-events (by event_uid) from every slice they
+    occupy, then re-derive unions, slices, exponents and feedback links.
+    Other sub-events that share the same state code are untouched: a wrong
+    finding in one period must not delete a correct one in another."""
+    if not uids_to_remove:
+        return ace_blocks, feedbacks
     kept_blocks = []
     for b in ace_blocks:
-        kept_entries = [e for e in b["entries"] if e.get("state_code") not in codes_to_remove]
+        kept_entries = [e for e in b["entries"] if e.get("event_uid") not in uids_to_remove]
         if not kept_entries:
             continue
         b["entries"] = kept_entries
         b["codes"] = list(dict.fromkeys(
             e["state_code"] for e in kept_entries if e.get("state_code")))
         kept_blocks.append(b)
-
-    by_ug = defaultdict(list)
-    for b in kept_blocks:
-        if b.get("union_group"):
-            by_ug[b["union_group"]].append(b)
-    for ug, members in by_ug.items():
-        if len(members) < 2:
-            for b in members:
-                b["union_group"] = None
-    return kept_blocks
+    return _tidy(kept_blocks)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -616,11 +618,10 @@ def _verify_record_offline(rec: dict) -> dict:
                 f"age {onset}{'' if onset==end else f'-{end}'} not found in source "
                 f"(source ages: {sorted(src_ages)})")
 
-    hints = rec.get("ace_items_hint") or []
-    hints = [int(x) for x in hints if str(x).isdigit()]
+    item = rec.get("ace_item")
 
     # Check 3a: ACE-14 requires a sustained conflict pattern, not a single incident.
-    if 14 in hints or "parental conflict" in str(rec.get("cluster_name") or "").lower():
+    if item == 14 or "parental conflict" in str(rec.get("cluster_name") or "").lower():
         conflict_words = ("fight", "fought", "argument", "argued", "arguing", "shout",
                           "yell", "screaming", "violence", "hit each other", "abused",
                           "abuse", "humiliat", "dominat", "verbal", "conflict",
@@ -638,7 +639,7 @@ def _verify_record_offline(rec: dict) -> dict:
                            "(a one-off mock/insult is not a pattern of parental conflict)")
 
     # Check 3b: ACE-13 must be family-wide poverty, not sibling favouritism.
-    if 13 in hints or "childhood poverty" in str(rec.get("cluster_name") or "").lower():
+    if item == 13 or "childhood poverty" in str(rec.get("cluster_name") or "").lower():
         poverty_words = ("poor", "poverty", "could not afford", "couldn't afford",
                          "no money", "public assistance", "welfare", "bare home",
                          "very little furniture", "went hungry", "no food",
@@ -684,13 +685,10 @@ ACE_VERIFY_SYSTEM = (
 
 
 def _scoring_item_for(rec: dict):
-    """Resolve the single ACE item this record will actually be scored
-    against (cluster-derived item takes priority over Worker 2's hint)."""
-    it = _cluster_item(rec.get("cluster_name"))
-    if it is not None:
-        return it
-    hints = [int(x) for x in (rec.get("ace_items_hint") or []) if str(x).isdigit()]
-    return hints[0] if hints else None
+    """The single ACE-14 item this record projects to (set at projection)."""
+    if rec.get("ace_item") is not None:
+        return rec["ace_item"]
+    return _cluster_item(rec.get("cluster_name"))
 
 
 def _llm_verify_record(rec: dict, api_key: str,
@@ -699,11 +697,8 @@ def _llm_verify_record(rec: dict, api_key: str,
     if not api_key:
         return None
 
-    items = rec.get("ace_items_hint") or []
-    items = [int(i) for i in items if str(i).isdigit()]
     _score_item = _scoring_item_for(rec)
-    if _score_item is not None and _score_item not in items:
-        items = items + [_score_item]
+    items = [_score_item] if _score_item is not None else []
     item_lines = "\n".join(
         f"  ACE-{i}: {ACE_QUESTIONS.get(i, '(unknown item)')}" for i in items
     ) or "  (no ACE item hint provided)"
@@ -866,10 +861,11 @@ def _llm_adjudicate_drop(rec: dict, item: int, fail_reason: str, api_key: str,
 
 
 def _merge_verdicts(offline: dict, llm: Optional[dict]) -> dict:
-    """Combine the offline heuristic verdict with the LLM verifier's
-    verdict (when available) into one final severity, taking the more
-    severe of the two unless the LLM affirmatively clears an offline
-    warn/fail as grounded, right-item, and right-age."""
+    """Combine the offline deterministic verdict with the LLM verifier's
+    (when available) into one severity: the more severe of the two. An LLM
+    "ok" may clear an offline *warn*, but never an offline *fail*: a fail
+    from either source is a candidate drop that only the adjudicator can
+    overturn (Supplementary Material, Section S1)."""
     rank = {"ok": 0, "warn": 1, "fail": 2}
     off_sev = offline.get("severity", "ok")
     reasons = list(offline.get("reasons") or [])
@@ -877,24 +873,20 @@ def _merge_verdicts(offline: dict, llm: Optional[dict]) -> dict:
         return {"severity": off_sev, "reasons": reasons, "offline": offline,
                 "llm": None, "llm_available": False}
     llm_sev = llm.get("verdict", "warn")
+    if llm.get("failed_defining"):
+        llm_sev = "fail"
     if llm.get("reason"):
         reasons.append("LLM: " + llm["reason"])
-    llm_defining_fail = bool(llm.get("failed_defining"))
-    if llm_defining_fail or llm_sev == "fail":
-        final = "fail"
-    elif llm_sev == "ok" and off_sev in ("warn", "fail"):
-        if llm.get("right_item", True) and llm.get("right_age", True) and llm.get("grounded", True):
-            final = "ok"
-        else:
-            final = "warn"
+    if llm_sev == "ok" and off_sev == "warn" and llm.get("grounded", True) \
+            and llm.get("right_item", True) and llm.get("right_age", True):
+        final = "ok"
     else:
         final = llm_sev if rank[llm_sev] >= rank[off_sev] else off_sev
     return {"severity": final, "reasons": reasons, "offline": offline,
             "llm": llm, "llm_available": True}
 
 
-def _format_flag(rec: dict, v: dict, dropped_items=None, adj_notes=None,
-                 surviving=None, record_removed=False) -> str:
+def _format_flag(rec: dict, v: dict, decision: str, adj: Optional[dict] = None) -> str:
     """Render a human-readable audit block for one flagged ACE record,
     for the --verify report and CLI output."""
     onset, end = rec.get("onset_age"), rec.get("end_age")
@@ -903,44 +895,40 @@ def _format_flag(rec: dict, v: dict, dropped_items=None, adj_notes=None,
     sev = v.get("severity", "?").upper()
     lines = ["\n" + "-" * 64,
              f"  FLAGGED [{sev}]  {rec.get('state_code')}  {rec.get('cluster_name')}  (age {age})",
-             f"  ACE item(s): {rec.get('ace_items_hint')}",
+             f"  ACE item: {rec.get('ace_item')}",
              f"  EVENT : {rec.get('event') or ''}",
              f"  SOURCE: {rec.get('source_sentence') or ''}",
              f"  WHY FLAGGED: {'; '.join(v.get('reasons') or [])}"]
-    if adj_notes:
-        for item, adj in adj_notes.items():
-            verdict = "DROP confirmed" if adj.get("confirm_drop") else "KEPT (false alarm)"
-            lines.append(f"  ADJUDICATOR ACE-{item}: {verdict} — {adj.get('reason','')}")
-    if record_removed:
-        lines.append("  -> RECORD REMOVED from graph (will NOT be scored)"
-                     + (f"; confirmed-wrong item(s): {dropped_items}" if dropped_items else ""))
-    elif dropped_items:
-        lines.append(f"  -> DROPPED secondary item(s): {dropped_items}; "
-                     f"KEPT scored item(s): {surviving} (record stays)")
+    if adj is not None:
+        verdict = "DROP confirmed" if adj.get("confirm_drop") else "KEPT (false alarm)"
+        lines.append(f"  ADJUDICATOR: {verdict} — {adj.get('reason', '')}")
+    lines.append(f"  -> {decision}")
     lines.append("-" * 64)
     return "\n".join(lines)
 
 
 def verify_ace_records(records: list, use_llm: bool = False, api_key: Optional[str] = None,
-                       auto_drop: bool = True, adjudicate: bool = True) -> tuple:
-    """Verify every ACE-projected record's grounding and drop the ones
-    that fail.
+                       auto_drop: bool = True, adjudicate: bool = True,
+                       drop_without_adjudicator: bool = False) -> tuple:
+    """Verify every projected ACE record and remove the ones confirmed wrong.
 
-    Input: flattened ACE records (from `_flatten_ace_records`) plus
-    flags controlling whether an LLM verifier and a second adjudicator
-    call are used.
-    Output: (kept_records, removed_state_codes, flagged_report) — a
-    record with a "fail" verdict has its specific failed item(s)
-    confirmed (via the adjudicator, if enabled) before being dropped
-    entirely or just narrowed to its surviving items.
+    Input: one record per projected sub-event (`_flatten_ace_records`).
+    A record whose verdict is "fail" (from the offline deterministic checks
+    or from the LLM verifier) is a candidate drop. Only a confirmed drop
+    removes it (Supplementary Material, Section S1):
+      - with the adjudicator on, a second, independent model call must
+        confirm the drop; a disputed drop keeps the record, and a failed
+        adjudicator call keeps it too (a failed call is never a verdict);
+      - with no adjudicator available (offline run, or no API key), the
+        record is kept and flagged `drop_unconfirmed` for review;
+      - only an explicit opt-out of adjudication (`drop_without_adjudicator`,
+        CLI --verify-no-adjudicate) lets the failing check's verdict stand.
+    Removal is per sub-event (event_uid), never per state code.
+    Output: (kept_records, removed_event_uids, flagged_report).
     """
-    def _ints(xs):
-        return [int(x) for x in (xs or []) if str(x).isdigit()]
-
-    kept, flagged, removed_codes = [], [], set()
+    kept, flagged, removed_uids = [], [], set()
     llm_calls = 0
     annotated = []
-    # Phase 1: run offline (and optionally LLM) verification on every record.
     for r in records:
         offline = _verify_record_offline(r)
         llm = None
@@ -948,76 +936,53 @@ def verify_ace_records(records: list, use_llm: bool = False, api_key: Optional[s
             llm = _llm_verify_record(r, api_key or "")
             if llm is not None:
                 llm_calls += 1
-        v = _merge_verdicts(offline, llm)
-        annotated.append((r, v))
+        annotated.append((r, _merge_verdicts(offline, llm)))
     if use_llm:
         logging.info("LLM verifier: %d/%d records checked via LLM", llm_calls, len(records))
 
-    # Phase 2: for every non-"ok" record, adjudicate which specific
-    # tagged item(s) actually fail, then either narrow the record to its
-    # surviving items or drop it entirely if nothing survives.
     for r, v in annotated:
         if v["severity"] == "ok":
             kept.append(r)
             continue
 
-        llm_v = v.get("llm") or {}
-        tagged = llm_v.get("tagged_items") or _ints(r.get("ace_items_hint"))
-        at_risk = llm_v.get("failed_items")
-        if at_risk is None:
-            at_risk = list(tagged) if v["severity"] == "fail" else []
-
-        confirmed_drop, adj_notes = [], {}
-        decision_kept = True
-
-        if v["severity"] == "fail" and auto_drop:
-            for item in at_risk:
-                adj = None
-                if adjudicate and use_llm and api_key:
-                    adj = _llm_adjudicate_drop(r, item, "; ".join(v.get("reasons") or []), api_key)
-                    if adj is not None:
-                        llm_calls += 1
-                if adj is None:
-                    if adjudicate:
-                        continue
-                    confirmed_drop.append(item)
-                    continue
-                adj_notes[item] = adj
-                if adj["confirm_drop"]:
-                    confirmed_drop.append(item)
-
-            surviving = [i for i in tagged if i not in confirmed_drop]
-            score_item = _scoring_item_for(r)
-            if score_item is not None and score_item in confirmed_drop:
-                decision_kept = False
-            elif tagged and not surviving:
-                decision_kept = False
+        adj, removed = None, False
+        if v["severity"] == "warn" or not auto_drop:
+            decision = "KEPT (warning only)" if v["severity"] == "warn" else "KEPT (--verify-no-drop)"
+        elif adjudicate and use_llm and api_key:
+            adj = _llm_adjudicate_drop(r, r.get("ace_item"),
+                                       "; ".join(v.get("reasons") or []), api_key)
+            if adj is None:
+                decision = "KEPT (adjudicator call failed — not treated as a verdict)"
+            elif adj["confirm_drop"]:
+                removed, decision = True, "RECORD REMOVED (drop confirmed by adjudicator)"
             else:
-                decision_kept = True
-                if confirmed_drop and surviving:
-                    r["ace_items_hint"] = surviving
+                decision = "KEPT (adjudicator disputed the drop)"
+        elif drop_without_adjudicator:
+            basis = ("LLM verifier" if (v.get("llm") or {}).get("verdict") == "fail"
+                     or (v.get("llm") or {}).get("failed_defining")
+                     else "offline deterministic check")
+            removed, decision = True, f"RECORD REMOVED ({basis}; adjudication switched off)"
+        else:
+            decision = ("KEPT — drop_unconfirmed: failed a check but no adjudicator "
+                        "was available to confirm the drop; review recommended")
 
-        surviving = [i for i in tagged if i not in confirmed_drop]
-        flag = {
-            "state_code": r.get("state_code"), "onset_age": r.get("onset_age"),
-            "end_age": r.get("end_age"), "cluster_name": r.get("cluster_name"),
-            "ace_items_hint_original": tagged, "event": r.get("event"),
-            "source_sentence": r.get("source_sentence"),
+        flagged.append({
+            "event_uid": r.get("event_uid"), "state_code": r.get("state_code"),
+            "onset_age": r.get("onset_age"), "end_age": r.get("end_age"),
+            "cluster_name": r.get("cluster_name"), "ace_item": r.get("ace_item"),
+            "event": r.get("event"), "source_sentence": r.get("source_sentence"),
             "severity": v["severity"], "reasons": v["reasons"],
             "llm_checked": v.get("llm_available", False),
-            "dropped_items": confirmed_drop, "surviving_items": surviving,
-            "record_removed": (not decision_kept),
-        }
-        flagged.append(flag)
-        print(_format_flag(r, v, dropped_items=confirmed_drop or None,
-                           adj_notes=adj_notes or None, surviving=surviving,
-                           record_removed=(not decision_kept)))
-        if decision_kept:
-            kept.append(r)
+            "adjudicator": adj, "decision": decision, "record_removed": removed,
+            "drop_unconfirmed": (v["severity"] == "fail" and auto_drop and not removed
+                                 and adj is None),
+        })
+        print(_format_flag(r, v, decision, adj))
+        if removed:
+            removed_uids.add(r.get("event_uid"))
         else:
-            if r.get("state_code"):
-                removed_codes.add(r["state_code"])
-    return kept, removed_codes, flagged
+            kept.append(r)
+    return kept, removed_uids, flagged
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1025,9 +990,9 @@ def verify_ace_records(records: list, use_llm: bool = False, api_key: Optional[s
 # ─────────────────────────────────────────────────────────────
 
 def selftest() -> bool:
-    """Offline regression guard: exercises ACE-relevance/age-window
-    projection (including out-of-window and non-ACE exclusions) and
-    reasoning-model payload construction against a synthetic trajectory."""
+    """Offline regression guard: projects the paper's worked example and
+    checks the exact ACE expression, then exercises the window cut at 18,
+    the 16-item-hint guard, per-record removal, and payload construction."""
     ok = True
 
     def check(cond, name):
@@ -1035,64 +1000,148 @@ def selftest() -> bool:
         print(f"  [{'PASS' if cond else 'FAIL'}] {name}")
         ok = ok and bool(cond)
 
-    records = [
-        W3G._mk_record("st-a", "Emotional Abuse", 0, 8,
-                       "Father emotionally abusive and controlling"),
-        W3G._mk_record("st-b", "Emotional Neglect", 0, 8, "Client felt unloved"),
-        W3G._mk_record("st-c", "Peer Bullying", 0, 8,
-                       "Bullied frequently and repeatedly at school"),
-        W3G._mk_record("st-e", "Physical Abuse", 12, 16, "Father beat and pinched her",
-                       life_stage="teenage"),
-        W3G._mk_record("st-a", "Emotional Abuse", 12, 16,
-                       "Father's emotional abuse continued", sub_id="st-a-2",
-                       life_stage="teenage"),
-        # Non-ACE state sharing the same 12-16 union — must be dropped by projection.
-        W3G._mk_record("st-p", "Depressive Symptoms", 12, 16, "depressed mood",
-                       exp_type="symptom", life_stage="teenage"),
-        # ACE-relevant cluster but adult-onset (age 22) — excluded as out-of-window.
-        W3G._mk_record("st-f", "Physical Abuse", 22, 24, "adult domestic incident",
-                       sub_id="st-f", life_stage="adult"),
-        # Non-ACE cluster entirely — excluded regardless of age.
-        W3G._mk_record("st-g", "Betrayal", 22, 24, "friend took money",
+    def general(records):
+        return W3G.build_expression(records, [], [], W3G.assign_alphabets(records))
+
+    def project(records):
+        g = general(records)
+        blocks, fbs, excl, unverified = project_to_ace(g)
+        return g, blocks, fbs, excl, unverified, build_ace_expression_from_projection(blocks, fbs)
+
+    # Worked example (main paper, Section V): E_ACE = (a + b + c^2) . (e + a^3)
+    g, blocks, fbs, excl, _, res = project(W3G.worked_example_records())
+    print(f"  General FE: {g['fire_expression']}")
+    print(f"  ACE FE    : {res['fire_expression']}")
+    check(res["fire_expression"].replace(" ", "") == "[C](a+b+c^2).(e+a^3)",
+          "PAPER MATCH: ACE projection of the worked example is exactly (a+b+c^2) . (e+a^3)")
+    check(any(x["reason"] == "not_ace_relevant" and x["state_code"] == "q-p" for x in excl),
+          "depressive symptoms (outcome, not adversity) excluded at projection")
+    check(any(x["reason"] == "not_ace_relevant" and x["state_code"] == "q-d" for x in excl),
+          "caregiver death has no ACE-14 item and is excluded at projection")
+    check(all(x["reason"] != "not_ace_relevant" or x["state_code"] not in ("q-a", "q-b", "q-c", "q-e")
+              for x in excl), "the four ACE states all survive projection")
+    check(len(fbs) == 1 and fbs[0]["cluster"] == "a",
+          "the emotional-abuse feedback edge survives projection (both ends in window)")
+    items = sorted({e["ace_item"] for b in blocks for e in b["entries"]})
+    check(items == [1, 2, 4, 11], "projected items are exactly {1, 2, 4, 11}")
+
+    # A span that straddles 18 is cut at 18; a span starting after 18 is dropped.
+    r_win = [
+        W3G._mk_record("w1", "Physical Abuse", 15, 25, "Father hit client", sub_id="w1"),
+        W3G._mk_record("w2", "Emotional Abuse", 22, 24, "Partner insulted client", sub_id="w2",
                        life_stage="adult"),
     ]
-    alphabet_map = W3G.assign_alphabets(records)
-    general_result = W3G.build_expression(records, [], [], alphabet_map, include_new_states=False)
-    print(f"  General FE: {general_result['fire_expression']}")
-    check(True, "general trajectory built (sanity)")
+    _, b_win, _, x_win, _, r_win_res = project(r_win)
+    check(all(b["interval"][1] <= ACE_MAX_AGE for b in b_win),
+          "no projected slice extends past 18 (straddling span cut at 18)")
+    check("[A]" not in r_win_res["fire_expression"],
+          "no adult-tier node appears in the ACE expression")
+    check(any(x["state_code"] == "w2" and x["reason"] == "out_of_window" for x in x_win),
+          "an ACE cluster whose span starts after 18 is excluded as out-of-window")
 
-    ace_blocks, ace_feedbacks, excluded = project_to_ace(general_result)
-    check(any(x["reason"] == "not_ace_relevant" and "depressed" in (x["event"] or "")
-             for x in excluded),
-          "projection: non-ACE depressive-symptom state excluded (not in ACE cluster set)")
-    check(any(x["reason"] == "out_of_window" for x in excluded),
-          "projection: adult-onset (age 22) state excluded as out-of-window")
+    # Hints in the earlier 16-item numbering are ignored; explicit ACE-14 hints are honoured.
+    leg = W3G._mk_record("h1", "Death of Father", 9, 9, "Father died", sub_id="h1")
+    leg["ace_items_hint"] = [12]          # earlier 16-item numbering: 12 = death of a parent
+    new = W3G._mk_record("h2", "Unnamed Construct", 6, 7, "Peers excluded client", sub_id="h2")
+    new["ace14_items_hint"] = [12]        # ACE-14 numbering: 12 = peer rejection
+    _, b_h, _, x_h, _, _ = project([leg, new])
+    proj = {e["state_code"]: (e["ace_item"], e["ace_item_source"]) for b in b_h for e in b["entries"]}
+    check("h1" not in proj and any(x["state_code"] == "h1" for x in x_h),
+          "a 16-item-numbering hint (ace_items_hint) never projects a non-ACE cluster")
+    check(proj.get("h2") == (12, "hint"),
+          "an explicit ace14_items_hint resolves an unmapped cluster")
 
-    ace_result = build_ace_expression_from_projection(ace_blocks, ace_feedbacks)
-    fe = ace_result["fire_expression"]
-    print(f"  ACE FE (projected): {fe}")
+    # Per-record removal: a wrong finding in one period must not delete
+    # a correct finding of the same state code in another period.
+    pov_ok = W3G._mk_record("p1", "Childhood Poverty", 4, 6,
+                            "Family could not afford food", sub_id="p1-a",
+                            source="Age 4-6: the family could not afford food and was very poor.")
+    pov_bad = W3G._mk_record("p1", "Childhood Poverty", 10, 11,
+                             "Client received fewer gifts than her sister", sub_id="p1-b",
+                             source="Age 10-11: received fewer gifts than her sister; "
+                                    "step-sister received more.")
+    _, b_p, f_p, _, _, _ = project([pov_ok, pov_bad])
+    recs = _flatten_ace_records(b_p)
+    check(len(recs) == 2, "each projected sub-event is verified exactly once")
+    _, removed0, report0 = verify_ace_records(recs, use_llm=False, adjudicate=False)
+    check(not removed0 and [f["event_uid"] for f in report0 if f["drop_unconfirmed"]] == ["p1-b"],
+          "with no adjudicator available, a failed check keeps the record and flags "
+          "it drop_unconfirmed (only a confirmed drop removes an item)")
+    _, removed, report = verify_ace_records(recs, use_llm=False, adjudicate=False,
+                                            drop_without_adjudicator=True)
+    check(removed == {"p1-b"}, "with adjudication explicitly off, the ACE-13 favouritism "
+                               "check removes only the sibling-comparison sub-event")
+    b_p2, _ = remove_entries_from_blocks(b_p, f_p, removed)
+    left = [e["event_uid"] for b in b_p2 for e in b["entries"]]
+    check(left == ["p1-a"], "the correct poverty finding with the same state code is kept")
 
-    flat_fe = fe.replace(" ", "")
-    check(re.search(r"\(a\+b\+c\^2\)|\(a\+c\^2\+b\)|\(b\+a\+c\^2\)|\(c\^2\+a\+b\)|"
-                    r"\(b\+c\^2\+a\)|\(c\^2\+b\+a\)", flat_fe) is not None,
-          "PAPER MATCH: ACE projection preserves (a+b+c^2) untouched from the general trajectory")
-    check("a^3" in flat_fe,
-          "PAPER MATCH: the feedback-boosted a^3 survives projection exactly as computed once")
+    # A failed adjudicator call keeps the record (never a negative verdict).
+    import unittest.mock as _mock
+    with _mock.patch(__name__ + "._llm_adjudicate_drop", return_value=None), \
+         _mock.patch(__name__ + "._llm_verify_record", return_value=None):
+        _, removed_adj, _ = verify_ace_records(recs, use_llm=True, api_key="x", adjudicate=True)
+    check(not removed_adj, "with the adjudicator on, a failed adjudicator call keeps the record")
+    with _mock.patch(__name__ + "._llm_adjudicate_drop",
+                     return_value={"confirm_drop": True, "reason": "test"}), \
+         _mock.patch(__name__ + "._llm_verify_record", return_value=None):
+        _, removed_conf, _ = verify_ace_records(recs, use_llm=True, api_key="x", adjudicate=True)
+    check(removed_conf == {"p1-b"},
+          "an offline fail confirmed by the adjudicator is removed even when the LLM is on")
 
-    non_ace_sym = alphabet_map.get("Depressive Symptoms")
-    check(non_ace_sym is not None and not re.search(rf"(?<![a-z]){non_ace_sym}(?![a-z])", flat_fe),
-          "projection: the non-ACE state's own symbol is absent from the ACE FE entirely")
+    # Removing the anchoring occurrence keeps a genuine later reactivation.
+    r_fb = [
+        W3G._mk_record("a1", "Emotional Abuse", 0, 1, "Father insulted client", sub_id="a1-x"),
+        W3G._mk_record("a1", "Emotional Abuse", 4, 5, "Father insulted client again",
+                       sub_id="a1-y"),
+        W3G._mk_record("a1", "Emotional Abuse", 8, 9, "Father insulted client once more",
+                       sub_id="a1-z"),
+    ]
+    _, b_fb, f_fb, _, _, _ = project(r_fb)
+    b_fb2, f_fb2 = remove_entries_from_blocks(b_fb, f_fb, {"a1-x"})
+    fe_fb = build_ace_expression_from_projection(b_fb2, f_fb2)["fire_expression"]
+    check(fe_fb.replace(" ", "") == "[C]a.a^3",
+          "after removing the first occurrence, feedback is recomputed: a . a^3")
 
-    check(any(x.get("state_code") == "st-f" and x["reason"] == "out_of_window" for x in excluded),
-          "projection: the specific out-of-window state (st-f, age 22) is excluded even "
-          "though its cluster symbol is reused by an in-window occurrence")
-    check(any(x.get("event") == "friend took money" and x["reason"] == "not_ace_relevant"
-             for x in excluded),
-          "projection: a non-ACE cluster (Betrayal) is excluded regardless of its age")
+    # No-age ACE entries are left out of the score, pending age review.
+    r_na = [W3G._mk_record("n1", "Physical Abuse", None, None, "Father hit client", sub_id="n1"),
+            W3G._mk_record("n2", "Peer Bullying", 7, 8, "Peers bullied client", sub_id="n2")]
+    _, b_na, _, x_na, unv_na, res_na = project(r_na)
+    check(all(e["state_code"] != "n1" for b in b_na for e in b["entries"])
+          and any(x["state_code"] == "n1" and x["reason"] == "no_age_pending_review" for x in x_na)
+          and [u["event_uid"] for u in unv_na] == ["n1"] and "[N]" not in res_na["fire_expression"],
+          "an ACE entry with no age is left out of the score and listed for age review")
 
-    check(len(ace_feedbacks) >= 1
-          and ace_feedbacks[0]["evidence"] == ["same_state_recurrence_after_gap"],
-          "projection: feedback edge reused unchanged from the general trajectory (both ends survived)")
+    # An adult occurrence sharing a teenage-tier slice is still out of window.
+    r_19 = [W3G._mk_record("t1", "Physical Abuse", 15, 18, "Father hit client", sub_id="t1"),
+            W3G._mk_record("t2", "Physical Abuse", 19, 19, "Partner hit client", sub_id="t2")]
+    _, b_19, _, x_19, _, _ = project(r_19)
+    check(all(e["state_code"] != "t2" for b in b_19 for e in b["entries"])
+          and any(x["state_code"] == "t2" and x["reason"] == "out_of_window" for x in x_19),
+          "an entry starting at 19 is excluded even inside a slice that starts at 15")
+
+    # A span cut at 18 carries end_age 18 to the scorer (duration check).
+    _, b_cl, _, _, _, res_cl = project([W3G._mk_record("c1", "Childhood Poverty", 14, 25,
+                                                       "Family was very poor", sub_id="c1")])
+    st = {r["state_code"]: r for r in res_cl["resolved_states"]}
+    check(st["c1"]["end_age"] == ACE_MAX_AGE,
+          "a span straddling 18 reaches the scorer with end_age clamped to 18")
+
+    # Sub-event ids are unique even when Worker 2 repeats a sub_id.
+    w2 = {"events": [{"status": "COMPOUND", "line_number": 1, "source_sentence": "x",
+                      "sub_events": [
+                          {"sub_id": "u_a", "status": "MAPPED", "state_code": "s1",
+                           "cluster_name": "Peer Bullying", "event": "bullied", "onset_age": 8},
+                          {"sub_id": "u_a", "status": "MAPPED", "state_code": "s2",
+                           "cluster_name": "Physical Abuse", "event": "hit", "onset_age": 8}]}]}
+    res_w2, _, _ = W3G.parse_worker2_output(w2)
+    check(len({r["event_uid"] for r in res_w2}) == 2,
+          "two sub-events sharing a Worker 2 sub_id still get distinct ids")
+
+    p = _build_llm_payload("gpt-5.1", "s", "u", 100)
+    check("temperature" not in p and p.get("reasoning_effort") == "none"
+          and p.get("max_completion_tokens") == 100, "GPT-5 payload shape")
+    p = _build_llm_payload("gpt-4.1", "s", "u", 100)
+    check(p.get("temperature") == 0.0 and p.get("max_tokens") == 100, "classic payload shape")
 
     print("\nSELF-TEST:", "ALL PASS" if ok else "FAILURES PRESENT")
     return ok
@@ -1104,26 +1153,32 @@ def selftest() -> bool:
 
 def main() -> None:
     """CLI entry point: load a general Worker 3 output file, project it
-    to the ACE subgraph, optionally run grounding verification (dropping
-    or narrowing records that fail), rebuild the ACE expression from
-    whatever survives, and write the result to --output."""
+    to the ACE subgraph, optionally run grounding verification (removing
+    records confirmed wrong), rebuild the ACE expression from whatever
+    survives, and write the result to --output."""
     parser = argparse.ArgumentParser(
-        description="FiRE Worker 3 ACE — projects the general Worker 3 trajectory "
-                    "to the ACE subgraph (does not rebuild the graph)")
+        description="FiRE Worker 3 (ACE): project the general trajectory to ACE items "
+                    "in ages 0-18 and check each item. The paper's runs used "
+                    "--verify --verify-llm.")
     parser.add_argument("input", nargs="?",
-                        help="fire_worker3_general.py output JSON")
-    parser.add_argument("--output", "-o", default="worker3_ace_output.json")
-    parser.add_argument("--verbose", "-v", action="store_true")
+                        help="Worker 3 (all instruments) output (worker3_output.json)")
+    parser.add_argument("--output", "-o", default="worker3_ace_output.json",
+                        help="Output path (default: worker3_ace_output.json)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Debug logging")
     parser.add_argument("--selftest", action="store_true",
                         help="Run offline regression checks and exit")
     parser.add_argument("--verify", action="store_true",
                         help="Run the ACE grounding verifier on the projected records.")
     parser.add_argument("--verify-llm", action="store_true",
-                        help="With --verify, run the LLM sub-question grid (needs "
-                             "OPENAI_API_KEY). FAILs are re-checked by a second "
-                             "adjudicator LLM and auto-removed (per-item) when confirmed.")
-    parser.add_argument("--verify-no-adjudicate", action="store_true")
-    parser.add_argument("--verify-no-drop", action="store_true")
+                        help="With --verify, also run the LLM sub-question grid (needs "
+                             "OPENAI_API_KEY). Every FAIL is re-checked by a second "
+                             "adjudicator call and removed only when it confirms.")
+    parser.add_argument("--verify-no-adjudicate", action="store_true",
+                        help="Let a failed check remove a record without the second "
+                             "adjudicator call. Default: only an adjudicator-confirmed "
+                             "drop removes a record; otherwise it is kept and flagged.")
+    parser.add_argument("--verify-no-drop", action="store_true",
+                        help="With --verify, report failing items but never remove one.")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -1152,7 +1207,7 @@ def main() -> None:
     patient_id = general_output.get("patient_id") or Path(args.input).stem
     logging.info("Patient: %s", patient_id)
 
-    ace_blocks, ace_feedbacks, excluded = project_to_ace(general_output)
+    ace_blocks, ace_feedbacks, excluded, age_unverified = project_to_ace(general_output)
     n_entries = sum(len(b["entries"]) for b in ace_blocks)
     logging.info("ACE-valid entries: %d (in %d blocks) | excluded: %d",
                  n_entries, len(ace_blocks), len(excluded))
@@ -1163,35 +1218,32 @@ def main() -> None:
         if args.verify_llm and not api_key:
             logging.warning("--verify-llm set but %s missing — falling back to offline checks only.",
                             API_KEY_ENV)
+        use_llm = args.verify_llm and bool(api_key)
         auto_drop = not args.verify_no_drop
-        adjudicate = (not args.verify_no_adjudicate) and args.verify_llm and bool(api_key)
+        adjudicate = (not args.verify_no_adjudicate) and use_llm
+        drop_without_adjudicator = args.verify_no_adjudicate
 
         ace_records = _flatten_ace_records(ace_blocks)
-        kept_records, removed_codes, verification_report = verify_ace_records(
-            ace_records, use_llm=args.verify_llm, api_key=api_key,
-            auto_drop=auto_drop, adjudicate=adjudicate)
-
-        if removed_codes:
-            ace_blocks = remove_state_codes_from_blocks(ace_blocks, removed_codes)
-            surviving_node_ids = {b["node_id"] for b in ace_blocks}
-            ace_feedbacks = [f for f in ace_feedbacks
-                            if f.get("earlier_node") in surviving_node_ids
-                            and f.get("later_node") in surviving_node_ids]
+        _, removed_uids, verification_report = verify_ace_records(
+            ace_records, use_llm=use_llm, api_key=api_key,
+            auto_drop=auto_drop, adjudicate=adjudicate,
+            drop_without_adjudicator=drop_without_adjudicator)
+        ace_blocks, ace_feedbacks = remove_entries_from_blocks(
+            ace_blocks, ace_feedbacks, removed_uids)
 
         n_fail = sum(1 for f in verification_report if f["severity"] == "fail")
         n_warn = sum(1 for f in verification_report if f["severity"] == "warn")
-        n_removed = sum(1 for f in verification_report if f.get("record_removed"))
         logging.info("Verifier: %d flagged (%d fail, %d warn)%s — %d record(s) removed",
                      len(verification_report), n_fail, n_warn,
-                     " [LLM+adjudicator]" if adjudicate else (" [LLM]" if args.verify_llm else ""),
-                     n_removed)
+                     " [LLM+adjudicator]" if adjudicate else (" [LLM]" if use_llm else " [offline]"),
+                     len(removed_uids))
 
     if not ace_blocks:
         logging.warning("No ACE-valid events survived projection. Nothing to graph.")
 
     result = build_ace_expression_from_projection(ace_blocks, ace_feedbacks)
 
-    sep = "\u2550" * 60
+    sep = "═" * 60
     print(f"\n{sep}\n  ACE FiRE Expression — {patient_id}\n{sep}\n")
     print(f"  {result['fire_expression']}\n")
     print(f"  Confidence band : {result['confidence_band']:.3f}")
@@ -1215,20 +1267,27 @@ def main() -> None:
             by_reason[x["reason"]] += 1
         for reason, n in by_reason.items():
             print(f"    {reason:20s}: {n}")
+    if age_unverified:
+        print(f"  ! {len(age_unverified)} ACE entr{'y' if len(age_unverified) == 1 else 'ies'} "
+              f"with no age evidence left out of the score, pending psychotherapist age review:")
+        for x in age_unverified:
+            print(f"      ACE-{x['ace_item']}  {x['state_code']}  {x['event']}")
 
     if verification_report:
         print("\n  Verifier flags (grounding check):")
         for f in verification_report:
             mark = "FAIL" if f["severity"] == "fail" else "warn"
             print(f"    [{mark}] {f['state_code']} {f['cluster_name']} "
-                  f"@{f['onset_age']}-{f['end_age']}: {'; '.join(f['reasons'])}")
+                  f"@{f['onset_age']}-{f['end_age']}: {f['decision']}")
     print(f"\n{sep}\n")
 
     output = {
         "patient_id": patient_id, "input_file": str(args.input), "signal": "ACE",
+        "instrument": "ACE-14",
         "worker2_stats": general_output.get("worker2_stats", {}),
         **result,
         "excluded_events": excluded,
+        "age_unverified": age_unverified,
         "verification_report": verification_report,
     }
     try:

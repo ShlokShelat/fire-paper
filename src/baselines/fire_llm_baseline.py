@@ -1,41 +1,37 @@
 #!/usr/bin/env python3
 """
-Direct ACE scoring from consultation notes using a single LLM.
+Direct-scoring baseline, notes only: one model call scores the 14 ACE items.
 
-Paper concept: this is the "direct scoring" comparison baseline the
-paper measures FiRE against — it collapses all of FiRE's intermediate
-stages (Event Extraction, Verification, State Space Mapping, Expression
-Construction, Projection, Scoring) into a single LLM call, which is
-exactly the contrast the paper's ablation is measuring.
+Paper concept: the plain (direct-scoring) baseline of the main paper's
+Table II, notes-only condition (Supplementary Material, Section S4). The
+system message only states the task; the user message gives the 14 items
+and the full notes and asks, for each item, whether it is present, with a
+verbatim source sentence, a short reasoning and a confidence, plus the
+total. There is deliberately no age-window instruction. The score is
+recomputed from the per-item flags; low-confidence items are flagged.
 
-Pipeline position: not part of the FiRE pipeline itself.
-Main input: a raw consultation-notes text file. Main output: a per-item
-ACE scorecard JSON, structurally similar to Worker 4's output but
-produced by asking one frontier model to score the full 14-item
-questionnaire directly from the notes in a single call.
-Key assumption: the model sees the same raw notes FiRE's pipeline
-does — see --strip-ace-annotations for removing any pre-computed ACE
-labels that would otherwise leak the answer.
+The notes-plus-form condition is run with
+fire_llm_baseline_self_form_included.py --form, whose direct mode uses the
+same prompt text as this script.
 
-Queries one of four supported models (gpt-5.1, gemini-3.1-pro,
-grok-4.20-0309-reasoning, or deepseek-v4-flash) to score the Adverse Childhood
-Experiences (ACE) questionnaire from clinical notes. Each item is grounded in
-verbatim source text from the notes, with reasoning and confidence level for
-full auditability.
+Model-call settings (Supplementary Material, Section S8): GPT-5.1 rejects
+an explicit temperature, so it is omitted and the API's default reasoning
+effort is used; Gemini 3.1 Pro and Grok-4.20 get temperature 0. Output
+limit 8000 tokens. This script shares no code with the FiRE pipeline.
 
 Usage:
     python3 fire_llm_baseline.py notes.txt --model gpt-5.1
     python3 fire_llm_baseline.py notes.txt --model gemini-3.1-pro
-    python3 fire_llm_baseline.py notes.txt --model grok-4.20-0309-reasoning
-    python3 fire_llm_baseline.py notes.txt --model deepseek-v4-flash -o result.json
+    python3 fire_llm_baseline.py notes.txt --model grok-4.20-0309-reasoning -o result.json
+    python3 fire_llm_baseline.py notes.txt --model gpt-5.1 --print-prompt   # no API call
+    python3 fire_llm_baseline.py --selftest
 
-API keys are read from environment variables (set one for your chosen model):
-    OPENAI_API_KEY          for gpt-5.1
-    GEMINI_API_KEY          for gemini-3.1-pro
-    XAI_API_KEY             for grok-4.20-0309-reasoning
-    DEEPSEEK_API_KEY        for deepseek-v4-flash
+API keys are read from environment variables (one for the chosen model):
+    OPENAI_API_KEY                  for gpt-5.1
+    GEMINI_API_KEY or GOOGLE_API_KEY for gemini-3.1-pro
+    XAI_API_KEY or GROK_API_KEY     for grok-4.20-0309-reasoning
 
-No third-party packages required — standard library only.
+Standard library only.
 """
 
 import argparse
@@ -70,21 +66,21 @@ ACE_QUESTIONS = OrderedDict([
 ])
 
 # Risk bands and clinical threshold
-HIGH_RISK_THRESHOLD = 7
+# The paper's clinical escalation line (ACE >= 4); same value as Worker 4.
+HIGH_RISK_THRESHOLD = 4
 HIGH_RISK_NOTE = (
-    "Adults reporting seven or more ACEs show roughly a thirtyfold increase "
-    "in the odds of attempted suicide (Dube et al. 2001). This threshold "
-    "is clinically significant for escalation decisions."
+    "Four or more ACEs significantly increase risks across mental health, "
+    "substance use, and violence outcomes (Hughes et al. 2017); the paper "
+    "treats ACE >= 4 as the clinical escalation line."
 )
 
 def risk_band(score: int) -> str:
     """Standard ACE-count risk bands, matching Worker 4's `canonical_risk`."""
     if score == 0:  return "MINIMAL"
     if score <= 1:  return "LOW"
-    if score <= 3:  return "MODERATE"
+    if score < HIGH_RISK_THRESHOLD:  return "MODERATE"
     if score <= 5:  return "HIGH"
-    if score == 6:  return "VERY HIGH"
-    return "VERY HIGH — CRITICAL (>=7)"
+    return "VERY HIGH"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -132,11 +128,6 @@ MODELS = {
         "url": "https://api.openai.com/v1/chat/completions",
         "key_env": ["OPENAI_API_KEY"],
     },
-    "deepseek-v4-flash": {
-        "provider": "openai",
-        "url": "https://api.deepseek.com/chat/completions",
-        "key_env": ["DEEPSEEK_API_KEY"],
-    },
     "gemini-3.1-pro": {
         "provider": "gemini",
         "url": "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -149,6 +140,9 @@ MODELS = {
         "key_env": ["XAI_API_KEY", "GROK_API_KEY"],
     },
 }
+
+# Output limit for every baseline call (Supplementary Material, Section S8).
+MAX_OUTPUT_TOKENS = 8000
 
 _REASONING_FAMILY_RE = re.compile(r'^(gpt-5|o1|o3|o4)', re.IGNORECASE)
 
@@ -239,17 +233,15 @@ def _build_openai_payload(model: str) -> dict:
         "messages": [{"role": "system", "content": SYSTEM_PROMPT}],
         "response_format": {"type": "json_object"},
     }
-    if _is_reasoning_model(model):
-        payload["max_completion_tokens"] = 8000
-    else:
+    payload["max_completion_tokens"] = MAX_OUTPUT_TOKENS
+    if not _is_reasoning_model(model):
         payload["temperature"] = 0
-        payload["max_completion_tokens"] = 8000
     return payload
 
 
 def call_openai_compatible(url: str, key: str, model: str,
                            system: str, user: str, verbose: bool = False) -> str:
-    """Call OpenAI-compatible API endpoint (used for gpt-5.1, DeepSeek, and Grok).
+    """Call an OpenAI-compatible endpoint (used for gpt-5.1 and Grok-4.20).
     
     Handles parameter adaptation for different model families (e.g., reasoning models
     that do not accept temperature). Retries on transient errors."""
@@ -295,7 +287,7 @@ def call_gemini(url: str, key: str, model: str,
         "generationConfig": {
             "temperature": 0,
             "responseMimeType": "application/json",
-            "maxOutputTokens": 8000,
+            "maxOutputTokens": MAX_OUTPUT_TOKENS,
         },
     }
     for attempt in range(4):
@@ -398,7 +390,7 @@ def normalise(raw: dict) -> dict:
 # ─────────────────────────────────────────────────────────────
 # REPORT
 # ─────────────────────────────────────────────────────────────
-CONF_LABEL = {"high": "HIGH  ", "medium": "MEDIUM", "low": "LOW \u26a0 "}
+CONF_LABEL = {"high": "HIGH  ", "medium": "MEDIUM", "low": "LOW!  "}
 
 def print_report(model_name: str, patient: str, result: dict):
     """Print the human-readable per-item scorecard and summary to stdout."""
@@ -428,9 +420,10 @@ def print_report(model_name: str, patient: str, result: dict):
     print(f"  ACE SCORE         : {result['ace_score']}/14   ({result['risk']} risk)")
     print(f"  Items present     : {result['items_present']}")
     if result["crosses_high_risk_threshold"]:
-        print(f"  \u26a0\u26a0 CROSSES ACE>=7 THRESHOLD: {result['high_risk_threshold_note']}")
+        print(f"  !! CROSSES ACE>={HIGH_RISK_THRESHOLD} ESCALATION LINE: "
+              f"{result['high_risk_threshold_note']}")
     if result["low_confidence_items"]:
-        print(f"  Low confidence \u26a0  : ACE items {result['low_confidence_items']} — recommend human review")
+        print(f"  Low confidence    : ACE items {result['low_confidence_items']} — recommend human review")
     if not result["score_consistent"] and result["model_reported_score"] is not None:
         print(f"  NOTE: model self-reported {result['model_reported_score']}; "
               f"recomputed from item flags = {result['ace_score']}")
@@ -459,8 +452,9 @@ def selftest() -> bool:
     check(set(["gpt-5.1", "gemini-3.1-pro", "grok-4.20-0309-reasoning"]) <= set(MODELS),
           "All expected baseline models are registered")
 
-    check(risk_band(6) == "VERY HIGH" and risk_band(7).startswith("VERY HIGH — CRITICAL"),
-          "Risk band distinguishes ACE score 6 from 7")
+    check(risk_band(3) == "MODERATE" and risk_band(4) == "HIGH" and risk_band(6) == "VERY HIGH"
+          and HIGH_RISK_THRESHOLD == 4,
+          "Escalation line is ACE >= 4, as in the paper")
     check(risk_band(0) == "MINIMAL" and risk_band(1) == "LOW"
           and risk_band(2) == "MODERATE" and risk_band(5) == "HIGH",
           "Other risk band boundaries are correct")
@@ -468,15 +462,21 @@ def selftest() -> bool:
     p1 = _build_openai_payload("gpt-5.1")
     check("temperature" not in p1 and p1.get("max_completion_tokens") == 8000,
           "Reasoning models omit temperature in payload")
-    p2 = _build_openai_payload("deepseek-v4-flash")
-    check(p2.get("temperature") == 0,
-          "Non-reasoning models include temperature")
+    p2 = _build_openai_payload("grok-4.20-0309-reasoning")
+    check(p2.get("temperature") == 0 and p2.get("max_completion_tokens") == 8000,
+          "Grok-4.20 gets temperature 0")
+    check(set(MODELS) == {"gpt-5.1", "gemini-3.1-pro", "grok-4.20-0309-reasoning"},
+          "Exactly the paper's three models are registered")
 
     raw = {"items": {str(n): {"present": n in (1, 2, 4, 9, 11, 14)} for n in range(1, 15)},
           "ace_score": 6}
     res = normalise(raw)
-    check(res["ace_score"] == 6 and res["crosses_high_risk_threshold"] is False,
-          "Score normalisation and risk threshold detection works")
+    check(res["ace_score"] == 6 and res["crosses_high_risk_threshold"] is True,
+          "Score normalisation and risk threshold detection works (6 >= 4)")
+    raw3 = {"items": {str(n): {"present": n in (1, 2, 4)} for n in range(1, 15)},
+            "ace_score": 3}
+    check(normalise(raw3)["crosses_high_risk_threshold"] is False,
+          "A score of 3 stays below the ACE >= 4 escalation line")
     check(res["risk"] == "VERY HIGH",
           "Risk label reflects score of 6")
 

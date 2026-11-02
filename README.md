@@ -1,402 +1,629 @@
-# FiRE: Finite-automata inspired Reasoning Engine
+# FiRE: Auditable Clinical Scoring from Consultation Notes with a Neurosymbolic Concept Bottleneck
 
-Supporting repository for "FiRE: Auditable Clinical Scoring from Consultation
-Notes with a Neurosymbolic Concept Bottleneck" (AAAI 2026, AI for Social
-Impact track).
+Code, prompts, evaluation scripts and a worked example for the paper by
+Shlok Shelat, Shrey Salvi, Souvik Roy, Manas Gaur, Gunjan Trivedi, Riri
+Trivedi, and Amit Sheth (IEEE Journal of Biomedical and Health Informatics,
+under review).
 
-Anonymized mirror for double-blind review:
-https://anonymous.4open.science/r/fire-paper-76E4/README.md
+FiRE (Finite-automata inspired Reasoning Engine) scores a clinical instrument,
+here the 14-item Adverse Childhood Experiences (ACE) questionnaire, from
+psychotherapists' consultation notes. Instead of asking a language model for a
+score, it extracts events from the notes, checks each one against its source
+text (construct, actor and role, age, and cited span), maps it to a shared
+state space of clinical states and clusters, and assembles the verified states
+into a symbolic trajectory with four operations (concatenation, union,
+self-loop, feedback). The ACE score is computed from that trajectory by a fixed
+projection and a fixed cluster-to-item table, so every point of the score
+traces back to a span of the notes and can be inspected and corrected. GPT-5.1
+is the only language model FiRE calls.
 
-## Overview
+The consultation notes, forms and reference scores cannot be released (see
+[Data availability and ethics](#data-availability-and-ethics)). This repository
+therefore contains everything needed to run FiRE and the baselines on new
+notes, to recompute every reported metric from expert judgements, and to check
+the paper's worked example offline; it does not contain the study data.
 
-FiRE turns a clinical consultation note into an auditable, symbolic
-Adverse Childhood Experiences (ACE) score. It extracts discrete
-clinical events from the note (**Event Extraction**), checks each one
-against four independent evidence criteria (**Verification**), maps
-every verified event onto a shared, growable taxonomy of clinical
-states (**State Space Mapping**), assembles the patient's full symbolic
-timeline as a "FiRE Expression" — an algebra of union, concatenation,
-self-loop, and feedback over that state space (**Expression
-Construction**) — and finally restricts and scores that expression
-against a specific instrument, here the 14-item India-adapted ACE
-questionnaire (**Projection** and **Scoring**). Every step from
-extraction onward requires its output to be traceable back to a
-verbatim span of the source note. See "Relation to the paper" below for
-exactly which file implements which of these terms.
+**Contents:**
+[Quick start](#quick-start) ·
+[Results](#results) ·
+[Pipeline](#pipeline) ·
+[Running FiRE](#running-fire) ·
+[Baselines](#running-the-baselines) ·
+[Ablation](#running-the-ablation) ·
+[Evaluation and tables](#evaluation-and-tables) ·
+[Tests](#tests-and-self-tests) ·
+[Repository structure](#repository-structure) ·
+[Citation](#citation)
 
-## What this repository contains
+## Quick start
 
-- **`src/`** — the actual pipeline implementation: ten stages, from
-  rule-based note preprocessing through ACE scoring, plus the three
-  frontier-model baselines.
-- **`prompts/`** — the system prompts used at every LLM-driven stage,
-  extracted and checked word-for-word against the original source,
-  including two corrections applied after an initial draft was found to
-  have silently truncated part of the Judge prompt's matching rules (see
-  `technical_appendix.pdf` for that correction's own account).
-- **`data/worked_example/`** — the main paper's Section 4 worked example:
-  input excerpt, expected event-to-state mapping, expected ACE expression,
-  and the two source figures, usable as a regression check against any
-  implementation of the trajectory algebra.
+Everything in this section is offline: no API key, no model download.
 
-**There is no `eval/` folder, and none is planned.** The results reported
-in the main paper's Table 1 and Table 2 (accuracy, groundedness, and the
-six-mode error-taxonomy breakdown) were produced by a human team counting
-directly over the pipeline's per-patient outputs, not by an aggregation
-script; see `technical_appendix.pdf`, Section 8 (Annotator and Consensus
-Protocol), for that process. There is accordingly no "reproduce the
-tables" code to include, and a stub claiming otherwise would misrepresent
-how the paper's numbers were actually produced.
+```
+git clone https://github.com/ShlokShelat/fire-paper && cd fire-paper
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt pytest
 
-**What has been independently verified, not just asserted:**
-- The ACE-14 item list and the 69-entry cluster-to-item mapping table
-  (`technical_appendix.pdf`, Section 2) were checked programmatically to
-  be byte-for-byte identical between the two pipeline files that each
-  depend on them.
-- The ten-stage pipeline architecture, the human-in-the-loop touchpoints,
-  the state-space provisional/permanent gate mechanism and its real
-  counts (14 provisional states created across the 40 evaluation
-  patients, all reviewed and resolved before scoring), and the
-  annotator/consensus protocol (17 clinically qualified reviewers per
-  patient) are documented in `technical_appendix.pdf` and were checked
-  against source material, not summarized from memory.
+make check            # tests, every script's --selftest, prompt files current
+make worked-example   # the paper's worked example: ACE = 4, items [1, 2, 4, 11]
+make tables           # the paper's tables, from the published counts
+```
+
+Without `make`, the same checks are
+`python3 -m pytest -q tests`, `python3 <script> --selftest` for each script,
+and `python3 prompts/export_prompts.py --check`. The algebra, instrument,
+baseline and evaluation code need only the standard library, so the test
+files also run before `pip install` (`python3 tests/test_worked_example_chain.py`
+and `python3 tests/test_scripts.py`); the tests of the scripts that import
+`aiohttp` (Stages 2-3, Worker 2, the ablation, the prompt check) are then
+skipped.
+
+The worked example (`data/worked_example/`) is the main paper's excerpt in the
+shape Worker 2 writes, so the rest of the pipeline runs without a model.
+`make worked-example` runs Worker 3 (all instruments), Worker 3 (ACE) and
+Worker 4 on it and prints the ACE expression `[C] (a+b+c^2) . (e+a^3)` and a
+score of 4 with items [1, 2, 4, 11], as in the paper (Figs. 4 and 5).
+
+## Results
+
+Accuracy and grounding over 560 item decisions (40 held-out individuals, 14
+items each), main paper Table II. Accuracy is agreement with the
+psychotherapists' consensus reference; a decision is ungrounded when it carries
+an E1, E3, E4 or E6 error.
+
+| Model | Accuracy, notes (%) | Accuracy, + form (%) | Grounded, notes (%) | Grounded, + form (%) |
+|---|---:|---:|---:|---:|
+| **FiRE** | **94.46** | **95.54** | **100.00** | **100.00** |
+| GPT-5.1 | 69.64 | 57.14 | 80.18 | 69.11 |
+| Grok-4.20 | 65.71 | 56.25 | 82.86 | 71.07 |
+| Gemini 3.1 Pro | 67.86 | 54.64 | 81.96 | 70.36 |
+| GPT-5.1, structure-guided | 62.50 | 53.04 | 86.43 | 75.00 |
+| Grok-4.20, structure-guided | 60.54 | 54.11 | 88.21 | 76.07 |
+| Gemini 3.1 Pro, structure-guided | 63.93 | 53.57 | 87.50 | 75.36 |
+| GPT-5.1, knowledge-matched | 74.46 | 64.46 | 88.39 | 77.68 |
+| Grok-4.20, knowledge-matched | 72.32 | 63.75 | 89.11 | 78.04 |
+| Gemini 3.1 Pro, knowledge-matched | 75.18 | 65.00 | 88.93 | 77.86 |
+
+Error modes (main paper, Section VI): E1 over-inference, E2 construct
+under-recognition, E3 referent and relational misattribution, E4 surface
+keyword matching, E5 age-window violation, E6 reconciliation instability.
+Error counts by mode, main paper Table III (SG, structure-guided; KM,
+knowledge-matched):
+
+| Model | Condition | E1 | E2 | E3 | E4 | E5 | E6 | Tot. |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| **FiRE** | Notes | 0 | 27 | 0 | 0 | 4 | 0 | **31** |
+| **FiRE** | Notes + form | 0 | 22 | 0 | 0 | 3 | 0 | **25** |
+| GPT-5.1 | Notes | 35 | 16 | 47 | 29 | 43 | 0 | 170 |
+| GPT-5.1 | Notes + form | 38 | 18 | 47 | 31 | 49 | 57 | 240 |
+| Grok-4.20 | Notes | 32 | 49 | 44 | 20 | 47 | 0 | 192 |
+| Grok-4.20 | Notes + form | 34 | 40 | 46 | 26 | 43 | 56 | 245 |
+| Gemini 3.1 Pro | Notes | 32 | 38 | 43 | 26 | 41 | 0 | 180 |
+| Gemini 3.1 Pro | Notes + form | 33 | 44 | 49 | 29 | 44 | 55 | 254 |
+| GPT-5.1, SG | Notes | 23 | 108 | 28 | 25 | 26 | 0 | 210 |
+| GPT-5.1, SG | Notes + form | 25 | 98 | 31 | 25 | 25 | 59 | 263 |
+| Grok-4.20, SG | Notes | 21 | 124 | 26 | 19 | 31 | 0 | 221 |
+| Grok-4.20, SG | Notes + form | 22 | 102 | 30 | 20 | 21 | 62 | 257 |
+| Gemini 3.1 Pro, SG | Notes | 22 | 104 | 25 | 23 | 28 | 0 | 202 |
+| Gemini 3.1 Pro, SG | Notes + form | 24 | 100 | 33 | 21 | 22 | 60 | 260 |
+| GPT-5.1, KM | Notes | 22 | 55 | 23 | 20 | 23 | 0 | 143 |
+| GPT-5.1, KM | Notes + form | 22 | 54 | 26 | 21 | 20 | 56 | 199 |
+| Grok-4.20, KM | Notes | 20 | 66 | 22 | 19 | 28 | 0 | 155 |
+| Grok-4.20, KM | Notes + form | 20 | 61 | 24 | 16 | 19 | 63 | 203 |
+| Gemini 3.1 Pro, KM | Notes | 21 | 52 | 24 | 17 | 25 | 0 | 139 |
+| Gemini 3.1 Pro, KM | Notes + form | 23 | 51 | 27 | 18 | 21 | 56 | 196 |
+
+Ablation over the same 560 decisions with GPT-5.1 (Supplementary Material,
+Section S10). Grd.: share of decisions with no E1, E3, E4 or E6 error.
+
+Notes only:
+
+| Run | E1 | E2 | E3 | E4 | E5 | E6 | Tot. | Acc. (%) | Grd. (%) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| FiRE | 0 | 27 | 0 | 0 | 4 | 0 | 31 | 94.46 | 100.00 |
+| Construct check off | 4 | 26 | 0 | 1 | 4 | 0 | 35 | 93.75 | 99.11 |
+| Actor and role check off | 0 | 26 | 4 | 0 | 4 | 0 | 34 | 93.93 | 99.29 |
+| Age check off | 0 | 25 | 0 | 0 | 19 | 0 | 44 | 92.14 | 100.00 |
+| Cited-span check off | 6 | 21 | 4 | 5 | 5 | 0 | 41 | 92.68 | 97.32 |
+| All four checks off | 13 | 17 | 10 | 10 | 21 | 0 | 71 | 87.32 | 94.11 |
+| No state space | 8 | 47 | 8 | 9 | 7 | 0 | 79 | 85.89 | 95.54 |
+| Model does the scoring | 3 | 30 | 2 | 4 | 6 | 0 | 45 | 91.96 | 98.39 |
+
+Notes + form:
+
+| Run | E1 | E2 | E3 | E4 | E5 | E6 | Tot. | Acc. (%) | Grd. (%) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| FiRE | 0 | 22 | 0 | 0 | 3 | 0 | 25 | 95.54 | 100.00 |
+| Construct check off | 3 | 23 | 0 | 1 | 3 | 1 | 31 | 94.46 | 99.11 |
+| Actor and role check off | 0 | 22 | 4 | 0 | 3 | 1 | 30 | 94.64 | 99.11 |
+| Age check off | 0 | 21 | 0 | 0 | 15 | 0 | 36 | 93.57 | 100.00 |
+| Cited-span check off | 5 | 18 | 4 | 5 | 4 | 5 | 41 | 92.68 | 96.61 |
+| All four checks off | 11 | 15 | 10 | 9 | 17 | 13 | 75 | 86.61 | 92.32 |
+| No state space | 8 | 43 | 9 | 9 | 5 | 8 | 82 | 85.36 | 93.93 |
+| Model does the scoring | 3 | 25 | 3 | 4 | 4 | 5 | 44 | 92.14 | 97.32 |
+
+How these numbers were produced: the five-psychotherapist reference team
+judged every system's output item by item, double-blind (Supplementary
+Material, Section S5), and the metrics follow from those judgements.
+`scripts/evaluate_judgements.py` and `scripts/make_tables.py` compute the
+metrics and render the tables from a per-item judgements file (see
+[Evaluation and tables](#evaluation-and-tables)). The judgements themselves
+cannot be released; the aggregate counts are in
+`data/paper_results/published_results.json`, and `make_tables.py --selftest`
+checks that every derived number above, and the intervals and McNemar bounds
+of Supplementary Section S9, follows from those counts.
+
+## Pipeline
+
+The paper describes four stages: (i) preprocessing the notes into events,
+(ii) mapping each event to the shared state space, (iii) verification by four
+checks, and (iv) building the trajectory, projecting it, and scoring. The
+implementation (Supplementary Material, Section S1):
+
+| Step | What it does | Stage | Script |
+|---|---|---|---|
+| Preprocessor | Rule-based normalisation to flat text, no LLM | (i) | `src/preprocessing/fire_preprocessor.py` |
+| Stage 1 | Tags lines; drops commentary and admin text | (i) | `src/extraction/fire_stage1.py` |
+| Stages 2-3 | GPT-5.1 extracts events; code runs the four checks | (i), (iii) | `src/extraction/fire_stage2_3_single_model.py` |
+| Stage 4 | Rechecks entities, grounding and timing | (iii) | `src/verification/fire_stage4.py` |
+| Stage 5 | Rescues discards; removes duplicates | (iii) | `src/verification/fire_stage5.py` |
+| Worker 2 | Splits events; maps each to a state | (ii) | `src/state_space/fire_worker2.py` |
+| Worker 3 (all) | Builds the trajectory and its operations | (iv) | `src/algebra/fire_worker3_general.py` |
+| Worker 3 (ACE) | Projects to ACE, ages 0 to 18; verifies items | (iv) | `src/instruments/fire_worker3_ace.py` |
+| Worker 4 | Parses the expression; counts distinct items | (iv) | `src/instruments/fire_worker4_ace.py` |
+| Form step | Notes + form only: decides each item from FiRE's evidence and the form (no model call) | (iv) | `src/instruments/fire_reconcile_ace.py` |
+
+The Preprocessor and Stages 1 to 5 together are Worker 1. The four checks run
+on each extracted event before Worker 2 maps it to a state; at that point the
+age check tests the event's age against the text, and the 0 to 18 window is
+applied at ACE projection.
+
+```
+ consultation notes
+        |
+ Preprocessor ......... flat, self-contained lines                (no LLM)
+        |
+ Stage 1 .............. tag lines, drop commentary and admin      (no LLM)
+        |
+ Stages 2-3 ........... extract events (GPT-5.1), then four checks in code:
+        |               construct | actor and role | age | cited span
+ Stage 4 .............. recheck entities, grounding, timing       (no LLM)
+        |
+ Stage 5 .............. rescue a discard on a yes, or keep it unverified if the call fails;
+        |               remove duplicates within one note section
+ Worker 2 ............. split each event (GPT-5.1); search the whole state
+        |               space; match (GPT-5.1) or create a provisional state
+ Worker 3 (all) ....... trajectory: concatenation, union, self-loop, feedback
+        |
+ Worker 3 (ACE) ....... keep ACE clusters in ages 0-18; item check (GPT-5.1)
+        |
+ Worker 4 ............. symbol -> cluster -> item; ACE = number of distinct items
+        |
+ Form step ............ notes + form only: change a form answer only on evidence
+```
+
+FiRE holds or flags its output in ten places (Section S1): a new state is used
+only for the individual whose event created it until a psychotherapist
+approves it; a Worker 3 (ACE) removal needs a second model call to confirm it;
+an ACE item with no age evidence is held out of the score until a
+psychotherapist confirms the age; an event failing one Stages 2-3 check, an
+event lowered by the Stage 4 audit, and an event restored by the Stage 5
+rescue are kept but flagged; a failed Worker 2 matching call leaves the event
+for review instead of guessing; and Worker 3's structural checks, unconfirmed
+duration on items 10 and 13, and a score of 4 or more are flagged without
+changing the score.
+
+The cluster-to-item table (69 entries, Supplementary Material, Section S2) is
+in one place, `src/instruments/ace14.py`, which Worker 3 (ACE), Worker 4 and
+the knowledge-matched baseline's state-space trimmer all import.
+
+## Running FiRE
+
+### Requirements
+
+Python 3.10 or later; the paper's runs used Python 3.13.12, torch 2.11.0 and
+numpy 2.4.4 on a CPU-only laptop (Supplementary Material, Section S8).
+`pip install -r requirements.txt` installs the four third-party packages the
+pipeline imports: `aiohttp`, `numpy`, `sentence-transformers` (which installs
+`torch`) and `spacy`. The two small local models (`all-MiniLM-L6-v2` and
+`cross-encoder/nli-MiniLM2-L6-H768`) are downloaded from the Hugging Face Hub
+on first use. All language-model inference is remote, through hosted APIs.
+
+API keys are read from environment variables (Stages 2-3 also accept
+`--api-key`); no script stores or prints one.
+
+| Variable | Used by |
+|---|---|
+| `OPENAI_API_KEY` | every FiRE model call (GPT-5.1: Stages 2-3, Stage 5, Worker 2, Worker 3 ACE), the ablation runs, and the GPT-5.1 baselines |
+| `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | Gemini 3.1 Pro baselines |
+| `XAI_API_KEY` (or `GROK_API_KEY`) | Grok-4.20 baselines |
+| `FIRE_STATE_SPACE` | optional: state-space path for the knowledge-matched baseline, instead of `--state-space` |
+
+Model-call settings follow Supplementary Material, Section S8: FiRE's GPT-5.1
+calls omit temperature (GPT-5.1 rejects it) and set reasoning effort "none";
+the GPT-5.1 baselines omit temperature and use the API's default reasoning
+effort; Gemini 3.1 Pro and Grok-4.20 receive temperature 0. Output limits:
+2000 tokens for extraction and the Worker 3 item check, 4000 and 300 for
+Worker 2's splitting and matching calls, 400 for the removal confirmation, 16
+for the rescue call.
+
+### End to end, one command
+
+`scripts/run_fire.py` chains the scripts below with the options the paper's
+runs used, in a working folder per individual, and writes `run_log.json`
+(commands, exit codes, durations):
+
+```
+export OPENAI_API_KEY=...
+# one individual, notes only
+python3 scripts/run_fire.py notes/patient_01.txt \
+    --state-space runs/state_space.json --workdir runs/patient_01
+# one individual, notes plus the self-filled form
+python3 scripts/run_fire.py notes/patient_01.txt --form notes/patient_01_ace_form.json \
+    --state-space runs/state_space.json --workdir runs/patient_01
+# every patient_NN.txt in a folder, one at a time, sharing one state space
+python3 scripts/run_fire.py --batch notes/ [--with-forms] \
+    --state-space runs/state_space.json --out-dir runs
+```
+
+`--print-commands` prints the exact commands without running anything;
+`--from STEP` and `--to STEP` run part of the chain. The state-space file is
+created empty if it does not exist (see [State space](#state-space)). The
+self-filled form is JSON such as `{"1": 1, "2": 0, ..., "14": 0}` or
+`{"1": {"score": 1}, ...}`; only the yes or no answer is read.
+
+### Step by step
+
+Each script writes the file the next one reads; this is what `run_fire.py`
+runs. From an individual's working folder:
+
+```
+export OPENAI_API_KEY=...
+export FIRE_SRC=/path/to/fire-paper/src
+mkdir -p runs && echo '{"domains": {}}' > runs/state_space.json   # once; shared by all individuals
+mkdir -p runs/patient01 && cp /path/to/patient01.txt runs/patient01/ && cd runs/patient01
+
+# Preprocessor -> patient01_preprocessed.json, patient01_flat.txt
+python3 "$FIRE_SRC/preprocessing/fire_preprocessor.py" patient01.txt
+# Stage 1 -> stage1_output.json
+python3 "$FIRE_SRC/extraction/fire_stage1.py" patient01_flat.txt -o stage1_output.json
+# Stages 2-3 -> validated_events.json (+ validated_events_audit.json)
+python3 "$FIRE_SRC/extraction/fire_stage2_3_single_model.py" stage1_output.json \
+    --patient-id patient01 --output validated_events.json
+# Stage 4
+python3 "$FIRE_SRC/verification/fire_stage4.py" validated_events.json \
+    --stage1 stage1_output.json -o validated_events_s4.json
+# Stage 5
+python3 "$FIRE_SRC/verification/fire_stage5.py" validated_events_s4.json \
+    --stage1 stage1_output.json -o validated_events_s5.json
+# Worker 2 (adds new provisional states to the shared state space)
+python3 "$FIRE_SRC/state_space/fire_worker2.py" validated_events_s5.json \
+    --stage1 stage1_output.json --state-space ../state_space.json \
+    --output final_mapped_events.json
+# Worker 3 (all instruments) -> also worker3_output.html
+python3 "$FIRE_SRC/algebra/fire_worker3_general.py" final_mapped_events.json -o worker3_output.json
+# Worker 3 (ACE), with the item check as in the paper
+python3 "$FIRE_SRC/instruments/fire_worker3_ace.py" worker3_output.json \
+    -o worker3_ace_output.json --verify --verify-llm
+# Worker 4
+python3 "$FIRE_SRC/instruments/fire_worker4_ace.py" worker3_ace_output.json -o ace_scorecard.json
+# Notes + form condition only: reconcile with the self-filled form (no API call)
+python3 "$FIRE_SRC/instruments/fire_reconcile_ace.py" worker3_ace_output.json ace_scorecard.json \
+    --form form.json -o ace_reconciled.json
+```
+
+Every script prints its options with `--help`. Useful ones:
+`fire_stage2_3_single_model.py stage1_output.json --dry-run` prints the
+extraction prompts without calling the API, and `fire_worker2.py --dry-run`
+prints the splitting prompts. Do not pass `--fresh-start` to Worker 2 unless
+you mean it: it deletes the state-space file. Worker 3 (ACE) with `--verify`
+but without `--verify-llm` runs only the deterministic part of the item check
+(no API call); the paper's runs used `--verify --verify-llm`.
+
+`worker3_output.html` is an interactive view of the trajectory. When opened, it
+loads the vis-network library from cdnjs.cloudflare.com; place
+`vis-network-bundle.js` next to `fire_worker3_general.py` to inline it and
+make the page work offline.
+
+The Preprocessor and Stage 1 were written for the partner clinic's note
+layout: `SECTION n:` headings, numbered subsections such as `2.1 Father`, a
+Section 3 timeline with age markers such as `~6-8` (on their own line or
+starting a row), and `Key:` lines. Other layouts run, but the line tagging and
+section grouping that Stages 2-3 depend on may be poorer.
+
+### The notes-plus-form step
+
+In the notes-plus-form condition FiRE does not read the form during the
+pipeline. It runs on the notes alone, then `fire_reconcile_ace.py` decides each
+of the 14 items from FiRE's finished output and the form's yes/no answer (the
+frequency is ignored), with no model call:
+
+1. FiRE found the item, with verified evidence: **yes**, with that evidence.
+2. FiRE has evidence the item does not count (the event starts after 18, or the
+   item check confirmed the notes do not support it): **no**, with that evidence.
+3. The notes are silent: the form's answer is kept, with no evidence, and
+   marked for review as taken from the form.
+
+In 1 and 2 the answer changes when it differs from the form. Evidence FiRE found
+but could not confirm (an event with no age, an unconfirmed drop, an unconfirmed
+two-year duration) is kept and the item is marked for review; an event with no
+age does not make the answer yes. Every change therefore cites a quote from the
+notes. The output lists, per item, the final answer, its source, the evidence,
+whether it changed and why, and whether a psychotherapist must review it, plus
+the reconciled score (Supplementary Section S1).
+
+### State space
+
+The paper's state space was built from development data: notes from the same
+clinic and process, from individuals disjoint from the 40 evaluation
+individuals (Supplementary Material, Section S3). It is not released.
+`src/state_space/fire_state_space_tree.json` documents the schema only.
+Starting from `{"domains": {}}`, every state is created by Worker 2 as
+provisional. A provisional state is used at once for the individual whose
+event created it and hidden from every other individual until a
+psychotherapist approves it. To review provisional states:
+
+```
+python3 "$FIRE_SRC/state_space/fire_worker2.py" --state-space ../state_space.json --export-review review.json
+# set "decision": "approve" or "reject" (and optionally "reviewer", "note") on each entry, then
+python3 "$FIRE_SRC/state_space/fire_worker2.py" --state-space ../state_space.json --apply-review review.json \
+    --patch-events final_mapped_events.json final_mapped_events_reviewed.json
+```
+
+Approval makes a state permanent and visible to every individual; rejection
+removes it, and `--patch-events` flags every piece that mapped to it for
+reprocessing. In the paper, the 14 provisional states created across the 40
+evaluation individuals were reviewed and approved as one batch after mapping
+and before any scoring (Section S3).
+
+## Running the baselines
+
+Each baseline is one model call per individual, from scripts that share no
+code with the pipeline (Supplementary Material, Section S4). `--model` is one
+of `gpt-5.1`, `gemini-3.1-pro`, `grok-4.20-0309-reasoning`.
+
+```
+# Plain (direct scoring), notes only
+python3 src/baselines/fire_llm_baseline.py notes.txt --model gpt-5.1 -o plain.json
+# Plain, notes + form (reconciliation)
+python3 src/baselines/fire_llm_baseline_self_form_included.py notes.txt --form form.json \
+    --model gpt-5.1 -o plain_form.json
+# Structure-guided (add --form form.json for the notes + form condition)
+python3 src/baselines/fire_llm_structured_baseline.py notes.txt --model gpt-5.1 -o structured.json
+# Knowledge-matched: trim the state space once, then run (add --form for notes + form)
+python3 src/baselines/trim_state_space.py state_space.json -o state_space_for_prompt.json
+python3 src/baselines/fire_llm_knowledge_baseline.py notes.txt --model gpt-5.1 \
+    --state-space state_space_for_prompt.json -o knowledge.json
+```
+
+`--print-prompt` prints the exact prompt without calling the API. The
+structure-guided and knowledge-matched scripts also take
+`--batch DATA_DIR [--with-forms] --out-dir DIR`, which runs every
+`patient_NN.txt` in a folder (with `patient_NN_ace_form.json`).
+`trim_state_space.py` keeps only what the knowledge-matched prompt uses
+(clusters with construct and item; states with their description, actors and
+roles, age window, example phrasings and ACE eligibility; the 69-entry table,
+which must equal `ace14.py`; non-ACE clusters; per-item rules) and drops review
+notes and every reference to where a state was seen in a note.
+
+The output limits are 8000 tokens for `fire_llm_baseline.py` (plain, notes
+only), 16000 for `fire_llm_baseline_self_form_included.py` (plain, notes plus
+form), and 32000 for the structure-guided and knowledge-matched scripts, whose
+replies are much longer (Supplementary Section S8). The plain baselines also
+accept `--strip-ace-annotations`, which removes note lines that already state
+an ACE score or item list; it is off by default.
+
+## Running the ablation
+
+`src/ablation/fire_ablation.py` implements the runs of Supplementary Material,
+Section S10. It reuses the main run's Stages 2-3 output, so the Stage 2
+extraction call is never repeated and every run shares the same extracted
+events. Later GPT-5.1 calls (Stage 5, Worker 2, the Worker 3 item check) are
+re-run. A removed part is replaced by a neutral stand-in (a removed check
+always passes), installed by patching the pipeline's own functions for that
+run. One switch per run:
+
+| Switch | What is removed |
+|---|---|
+| `--no-construct-check` | Stages 2-3 construct check |
+| `--no-actor-role-check` | Stages 2-3 actor and role check |
+| `--no-age-check` | Stages 2-3 age check, and the 0-18 window at ACE projection |
+| `--no-cited-span-check` | Stages 2-3 cited-span check and Stage 4's grounding recheck |
+| `--no-checks` | all four checks |
+| `--no-state-space` | Worker 2 maps each piece straight to an ACE item (same number of calls; checks on) |
+| `--model-scoring` | the model decides each cluster's item from its verified states, instead of the table |
+| `--no-algebra` | offline: distinct items of the verified, in-window states, compared with Worker 4 |
+
+From a folder holding one individual's main-run files (as in `runs/patient01`):
+
+```
+python3 "$FIRE_SRC/ablation/fire_ablation.py" --no-age-check \
+    --stage1 stage1_output.json --cached-extraction validated_events.json \
+    --state-space ../state_space.json --out-dir ablation_no_age_check
+python3 "$FIRE_SRC/ablation/fire_ablation.py" --no-algebra \
+    --w3-ace worker3_ace_output.json --scorecard ace_scorecard.json
+```
+
+The state space is copied into `--out-dir` and never modified. A run writes
+every stage's output plus `ablation_manifest.json` (switch, patched functions,
+input hashes, resulting score). `--no-algebra` exits with status 1 if the two
+scores differ.
+
+## Evaluation and tables
+
+Accuracy and grounding come from expert judgements, not from a script: in the
+paper, the reference team judged each of the 560 decisions per system and
+condition, recording the error mode of any wrong or ungrounded decision
+(Supplementary Material, Section S5). Given such judgements, the metrics and
+tables are recomputed offline:
+
+```
+python3 scripts/evaluate_judgements.py judgements.csv [--json metrics.json]
+python3 scripts/make_tables.py judgements.csv --table main      # Table II (LaTeX rows)
+python3 scripts/make_tables.py judgements.csv --table errors    # Table III
+python3 scripts/make_tables.py judgements.csv --table stats     # Table S-stats
+python3 scripts/make_tables.py ablation.csv   --table ablation  # ablation table
+python3 scripts/make_tables.py judgements.csv --format markdown
+```
+
+The judgements file is a CSV with one row per item decision:
+
+| Column | Content |
+|---|---|
+| `system` | e.g. `FiRE`, `GPT-5.1`, `GPT-5.1, structure-guided` (for the ablation table, the run name) |
+| `condition` | `notes` or `notes+form` |
+| `individual` | coded identifier |
+| `item` | 1 to 14 |
+| `error_mode` | empty if judged correct and grounded, otherwise one of `E1` to `E6` |
+| `system_answer`, `reference_answer` | optional, 0 or 1; a row whose answers differ must carry an error mode |
+
+Definitions, as in the paper: accuracy is the share of decisions with no error
+mode (in the paper every judged error carries exactly one mode, so the
+total of Table III is the number of decisions that do not match the
+reference); grounding is the share with no E1, E3, E4 or E6 error; intervals
+are Wilson 95% intervals over the 560 decisions, plus the clustered extreme of
+Section S9 (one effective decision per individual); the McNemar statistic
+against FiRE is bounded below from the error counts, as in Table S-stats, and
+computed exactly when both systems' judgements cover the same decisions. The
+scripts check that each system has 14 judged items per individual.
+
+`python3 scripts/make_tables.py --published` renders the tables from the
+published counts, and `--example-csv FILE` writes a synthetic judgements file
+with those counts to show the format (it is not the study's data).
+
+## Tests and self-tests
+
+Every pipeline, baseline, ablation and evaluation script has an offline
+`--selftest` that uses synthetic inputs and makes no network call, and two
+test files run the command-line tools as separate processes:
+
+```
+python3 -m pytest -q tests                       # or run each test file directly
+python3 src/ablation/fire_ablation.py --selftest # any script: --selftest
+python3 prompts/export_prompts.py --check        # prompts/*.txt match the code
+make check                                       # all of the above
+```
+
+`tests/test_worked_example_chain.py` runs the worked example through Worker 3
+(all) -> Worker 3 (ACE) -> Worker 4 and checks the paper's expression and
+score, runs the notes-plus-form step on it with a test form, runs every
+`--selftest`, checks that `--no-algebra` equals Worker 4's score, and checks
+that the prompt files are current. `tests/test_scripts.py` runs
+`scripts/run_fire.py` on the worked example (one individual and batch mode),
+checks that it refuses to start model steps without a key, and checks that
+the evaluation scripts reproduce Table II from a judgements file with the
+published counts. Every API key is removed from the environment of each test
+process. Tests for scripts that import `aiohttp` are skipped if it is not
+installed. The ablation self-test checks that each switch neutralises exactly
+its check and nothing else, that the originals are restored afterwards, and
+that `--no-algebra` gives ACE = 4 with items {1, 2, 4, 11} on the worked
+example. The Stage 1 self-test uses spaCy if it is installed and a simple
+sentence splitter otherwise.
+
+## Prompts
+
+`prompts/*.txt` hold every prompt the pipeline, the baselines and the
+ablation send, verbatim, written by `prompts/export_prompts.py` from the code
+itself (`--check` verifies them). The only change from the paper's runs: the
+extraction prompt named the partner clinic, which now reads `[partner clinic]`.
+`prompts/indian_cultural_glossary.txt` is an input, not generated: the
+structure-guided and knowledge-matched prompts include its table.
+
+## The worked example
+
+The main paper's excerpt (`data/worked_example/input.txt`) describes emotional
+abuse by the father, feeling unloved and frequent bullying at ages 0 to 8, the
+mother's death at 11, physical abuse with continuing emotional abuse and
+depressed mood at 12 to 16, and adult events (a friend's betrayal, a husband's
+affair, divorce, low mood and insomnia). A frontier model scoring directly
+reports 7 items; FiRE maps each event to a state (Table I), drops the
+depressive symptoms (an outcome), the mother's death (no ACE item) and the
+adult events at projection, and serialises the ACE subgraph as
+`(a + b + c^2) . (e + a^3)`: union of three co-occurring constructs, a
+self-loop for the frequent bullying, and feedback for the returning emotional
+abuse. The distinct items are {1, 2, 4, 11}, so ACE = 4; the exponents record
+recurrence and do not change the count. `data/worked_example/README.md`
+describes the files.
 
 ## Repository structure
 
 ```
 fire-paper/
-├── README.md
-├── LICENSE
-├── requirements.txt
+├── README.md                 this file
+├── REPRODUCING.md            what each reported result needs, step by step
+├── CITATION.cff  LICENSE  Makefile  pyproject.toml  requirements.txt
 ├── src/
-│   ├── preprocessing/       Rule-based note normalization (no LLM)
-│   ├── extraction/          Stage 1 (sentence tagging) and Stage 2/3
-│   │                        (extraction + four-axis verification)
-│   ├── verification/        Stage 4 (second-pass audit) and Stage 5
-│   │                        (rescue + deduplication)
-│   ├── state_space/         Worker 2: Oracle/Judge matching, provisional/
-│   │                        permanent clinician gate
-│   ├── algebra/             Worker 3 (general): the trajectory algebra,
-│   │                        implemented once, instrument-independent
-│   ├── instruments/         Worker 3 (ACE) projection, Worker 4 (ACE)
-│   │                        scoring
-│   └── baselines/           Direct-scoring and reconciliation baseline
-│                            harnesses for the three frontier models
+│   ├── preprocessing/fire_preprocessor.py        Preprocessor
+│   ├── extraction/fire_stage1.py                 Stage 1
+│   ├── extraction/fire_stage2_3_single_model.py  Stages 2-3
+│   ├── verification/fire_stage4.py               Stage 4
+│   ├── verification/fire_stage5.py               Stage 5
+│   ├── state_space/fire_worker2.py               Worker 2
+│   ├── state_space/fire_state_space_tree.json    state-space schema (no content)
+│   ├── algebra/fire_worker3_general.py           Worker 3 (all instruments)
+│   ├── instruments/ace14.py                      ACE items, window, 69-entry table
+│   ├── instruments/fire_worker3_ace.py           Worker 3 (ACE)
+│   ├── instruments/fire_worker4_ace.py           Worker 4 (ACE)
+│   ├── instruments/fire_reconcile_ace.py         notes + form step
+│   ├── baselines/fire_llm_baseline.py                   plain, notes only
+│   ├── baselines/fire_llm_baseline_self_form_included.py plain, notes + form
+│   ├── baselines/fire_llm_structured_baseline.py        structure-guided
+│   ├── baselines/fire_llm_knowledge_baseline.py         knowledge-matched
+│   ├── baselines/trim_state_space.py                    state space -> prompt file
+│   └── ablation/fire_ablation.py                 ablation runs (Section S10)
+├── scripts/
+│   ├── run_fire.py               the pipeline end to end, one individual or a folder
+│   ├── evaluate_judgements.py    accuracy, grounding, intervals, McNemar from judgements
+│   └── make_tables.py            Tables II, III, S-stats and the ablation table
+├── prompts/                  every prompt, verbatim, generated from the code
+│   ├── export_prompts.py     regenerates the .txt files (--check verifies them)
+│   ├── extraction_system_prompt.txt   oracle_and_judge_prompts.txt
+│   ├── rescue_prompt.txt              ace_verification_prompts.txt
+│   ├── baseline_prompts.txt           ablation_prompts.txt
+│   └── indian_cultural_glossary.txt   glossary read by two baselines
 ├── data/
-│   └── worked_example/      The paper's Section 4 worked example: input
-│                            excerpt, expected mapping, expected ACE
-│                            expression, and the two source figures
-└── prompts/
-    ├── extraction_system_prompt.txt
-    ├── indian_cultural_glossary.txt
-    ├── oracle_and_judge_prompts.txt
-    ├── rescue_prompt.txt
-    ├── ace_verification_prompts.txt
-    └── baseline_prompts.txt
+│   ├── worked_example/       the paper's worked example and expected output
+│   └── paper_results/published_results.json   published counts and metrics
+└── tests/
+    ├── test_worked_example_chain.py
+    └── test_scripts.py
 ```
 
-## Relation to the paper
+## Data availability and ethics
 
-The paper describes four pipeline stages: (i) preprocessing into
-events, (ii) mapping to the shared state space, (iii) a four-axis
-verification step, and (iv) trajectory assembly plus instrument
-projection/scoring. This repository implements that pipeline as:
+The consultation notes, self-filled forms, reference scores and expert
+judgements cannot be released, as required by the approved protocol and the
+participants' consent; the worked example is the only note text here. The
+study was approved by the ACEAS-Independent Ethics Committee, Ahmedabad, India
+(CDSCO Reg. No. ECR/281/Indt/GJ/2017/RR-25; OHRP Reg. No. IRB00011046;
+Protocol WS/Apr/2026, Version 2.0, approved 23 May 2026). Written informed
+consent was obtained from every participant, and every system, including the
+commercial models, received only coded, de-identified records (Supplementary
+Material, Section S7).
 
-| Paper stage | Paper terminology | Implementation |
-|---|---|---|
-| (i) | Preprocessing / Event Extraction | `src/preprocessing/fire_preprocessor.py`, `src/extraction/fire_stage1.py` (both rule-based) + Stage 2 of `src/extraction/fire_stage2_3_single_model.py` (LLM-driven) |
-| (iii) | Verification | Stage 3 of `src/extraction/fire_stage2_3_single_model.py` — the four-axis check (construct, actor/role, age window, groundedness) |
-| (ii) | State Space Mapping | `src/state_space/fire_worker2.py` (Oracle → Judge → Genesis) |
-| (iv), part 1 | Expression Construction | `src/algebra/fire_worker3_general.py` |
-| (iv), part 2 | Projection | `src/instruments/fire_worker3_ace.py` |
-| (iv), part 3 | Scoring | `src/instruments/fire_worker4_ace.py` |
+FiRE is assistive decision support for psychotherapists, not a diagnostic
+authority; its output is meant to be checked and corrected by a clinician.
+Total API cost and token counts were not reliably recorded for the paper's
+runs; the running cost estimates the scripts print use placeholder rates and
+should not be reported (Section S8).
 
-`src/verification/fire_stage4.py` and `src/verification/fire_stage5.py`
-are additional passes this repository runs between Verification and
-State Space Mapping (a second evidence audit, and a rescue +
-deduplication step). Neither is one of the four stages the paper
-describes; each file's own module docstring explains in detail what it
-does and why it is not presented as part of stage (iii). The two
-`src/baselines/` scripts implement no pipeline stage at all — they are
-the single-LLM-call comparison points ("direct scoring" and
-"reconciliation") the paper's ablation measures FiRE against.
+## Citation
 
-## Setup
-
-**Requirements:** Python 3.10 or later (the state-space matcher in
-`src/state_space/fire_worker2.py` uses the `X | None` union type-hint
-syntax introduced in 3.10) and an API key for the LLM-driven stages
-(see below).
-
-```
-pip install -r requirements.txt
+```bibtex
+@article{shelat2026fire,
+  title   = {{FiRE}: Auditable Clinical Scoring from Consultation Notes with a
+             Neurosymbolic Concept Bottleneck},
+  author  = {Shelat, Shlok and Salvi, Shrey and Roy, Souvik and Gaur, Manas and
+             Trivedi, Gunjan and Trivedi, Riri and Sheth, Amit},
+  journal = {IEEE Journal of Biomedical and Health Informatics},
+  year    = {2026},
+  note    = {Under review}
+}
 ```
 
-`requirements.txt` installs four packages — `aiohttp`, `spacy`,
-`sentence-transformers`, and `numpy` — each with a comment explaining
-exactly where it is used, verified directly against every `import` in
-`src/` (via Python's `ast` module, not just a text search). All
-model API calls in this pipeline are hand-built HTTP requests (via
-`aiohttp` or the standard-library `urllib.request`), not a vendor SDK,
-so no `openai`/`requests`/`google-generativeai` client package is
-required; `requirements.txt` explains this and keeps those names
-commented out for anyone who wants to swap in an official SDK instead.
-
-API keys are read from environment variables, not hardcoded; this was
-confirmed directly against the source in the security pass described
-below. The exact environment variable name each script expects was not
-catalogued here in one place; check the constant near the top of each
-`src/` file (`API_KEY_ENV`, `RESCUE_API_KEY_ENV`, and a per-model
-`key_env` list in the baseline scripts) for the name it actually reads.
-
-## Running the pipeline
-
-There is no training step anywhere in this repository — FiRE prompts
-frozen, off-the-shelf LLMs (see "Setup" for the model) and never
-fine-tunes or updates any model weights. Every stage below is either
-rule-based/deterministic code or a prompting call against a hosted model.
-
-Every script under `src/` is runnable directly and prints a `Usage:`
-line (or supports `--help` via `argparse`) if invoked without
-arguments. The stages chain together by filename — each stage's
-default output is the next stage's expected input. The commands below
-use bash/POSIX syntax (macOS, Linux, WSL, Git Bash); on native Windows
-`cmd.exe` use `set OPENAI_API_KEY=...` instead of `export`, or
-`$env:OPENAI_API_KEY = "..."` in PowerShell — everything after that line
-is the same `python3 ...` command on any platform:
-
-```
-# 1. Preprocessing (rule-based, no LLM, no API key needed)
-python3 src/preprocessing/fire_preprocessor.py notes.txt
-#   -> notes_preprocessed.json, notes_flat.txt
-
-# 2. Stage 1: sentence tagging (rule-based, no LLM)
-python3 src/extraction/fire_stage1.py notes_flat.txt
-#   -> stage1_output.json
-
-# 3. Stage 2+3: LLM event extraction + four-axis verification
-export OPENAI_API_KEY=...
-python3 src/extraction/fire_stage2_3_single_model.py stage1_output.json \
-    --patient-id patient01 --output validated_events.json
-
-# 4. Stage 4 (optional second-pass audit — see "Relation to the paper")
-python3 src/verification/fire_stage4.py validated_events.json \
-    --stage1 stage1_output.json --output validated_events_s4.json
-
-# 5. Stage 5 (optional rescue + deduplication — likewise supplementary)
-python3 src/verification/fire_stage5.py validated_events_s4.json \
-    --stage1 stage1_output.json --output validated_events_s5.json
-
-# 6. Worker 2: state-space mapping (Oracle / Judge / Genesis)
-# --fresh-start is used here deliberately — see the note below the block.
-python3 src/state_space/fire_worker2.py validated_events_s5.json \
-    --stage1 stage1_output.json \
-    --state-space my_state_space.json --fresh-start \
-    --output final_mapped_events.json
-
-# 7. Worker 3 (general): FiRE Expression construction
-python3 src/algebra/fire_worker3_general.py final_mapped_events.json \
-    --output worker3_output.json
-
-# 8. Worker 3 (ACE): projection to the 14-item ACE subgraph
-python3 src/instruments/fire_worker3_ace.py worker3_output.json \
-    -o worker3_ace_output.json
-
-# 9. Worker 4 (ACE): final 0-14 ACE score card
-python3 src/instruments/fire_worker4_ace.py worker3_ace_output.json \
-    -o ace_scorecard.json
-```
-
-**On the state-space file (Step 6):** `src/state_space/fire_state_space_tree.json`
-is a schema placeholder, not the actual shared taxonomy built from the
-paper's 40-patient evaluation set (that dataset is private — see "Data
-availability" below), and its one example entry uses the literal
-strings `"string"` as placeholder names/descriptions. Passing
-`--fresh-start` (as the command above does) discards that placeholder
-and starts Worker 2 from an empty `{"domains": {}}` database instead of
-embedding the literal placeholder entry into the semantic search index.
-Every state your own run of the pipeline discovers will be created as a
-new `provisional` state from scratch — it will not reuse the paper's
-actual cluster/state codes or their cluster-to-ACE-item mapping,
-which is a property of the private taxonomy, not of this schema file.
-The 14-item ACE mapping logic itself (`CLUSTER_ACE_ITEM` in
-`fire_worker3_ace.py` / `fire_worker4_ace.py`) is fully included and
-reproducible independent of this — only the discovered clinical
-*states* (as opposed to the fixed ACE *items* they can project to) come
-from the private dataset.
-
-Steps 3, 5, and 6 need the environment variable named in that script's
-`API_KEY_ENV` / `RESCUE_API_KEY_ENV` constant (`OPENAI_API_KEY` for the
-default `gpt-5.1` model everywhere in this pipeline). Step 4 calls no
-LLM at all — it is pure cosine-similarity/keyword code and needs no API
-key. Steps 1, 2, 7, 8, and 9 likewise need no API key.
-
-Steps 3–6 additionally use the `sentence-transformers` package, which
-downloads its ~90MB embedding model from the Hugging Face Hub on first
-use (see `requirements.txt`). For step 6 (Worker 2) this package is a
-hard requirement — it is imported unconditionally and there is no
-fallback. Steps 3, 4, and 5 use it only as an optional quality
-enhancement and automatically fall back to a lexical (Jaccard)
-similarity check if it is unavailable, so they still run without it,
-just with a slightly less precise similarity signal.
-
-Nine of the eleven scripts under `src/` (everything except the two
-rule-based Stage 1 and preprocessing scripts) also accept a `--selftest`
-flag that runs offline regression checks against synthetic data and
-exits — useful for confirming the pipeline logic works in your
-environment before spending any API budget, e.g.:
-
-```
-python3 src/extraction/fire_stage2_3_single_model.py --selftest
-python3 src/state_space/fire_worker2.py --selftest
-python3 src/algebra/fire_worker3_general.py --selftest
-```
-
-The `data/worked_example/` files are a smaller, independent regression
-check against the later Worker 2–4 stages specifically (see
-`data/worked_example/README.md`); they are a small excerpt already in
-event form, not raw clinical notes, and are not meant to be run through
-the Stage 1 / preprocessing front end.
-
-**Baselines** run standalone, directly against a raw notes file, with no
-other pipeline stage involved:
-
-```
-python3 src/baselines/fire_llm_baseline.py notes.txt --model gpt-5.1
-python3 src/baselines/fire_llm_baseline_self_form_included.py notes.txt \
-    --form patient_form.json --model gpt-5.1 -o result.json
-```
-
-### Understanding the outputs
-
-- `validated_events.json` / `..._s4.json` / `..._s5.json` — one record
-  per candidate clinical event, each carrying its four-axis verification
-  result (`construct_check_passed`, `actor_role_check_passed`,
-  `age_window_check_passed`, `groundedness_check_passed`) and an overall
-  `status` (`CONFIRMED` / `TENTATIVE` / `REVIEW_REQUIRED` / `DISCARD`).
-- `final_mapped_events.json` — the same events with each sub-event
-  resolved to a `state_code` in the shared taxonomy; newly created codes
-  are `provisional` and require clinician review before counting as
-  `permanent` (see `worker2_stats.provisional_states_pending_review`).
-- `worker3_output.json` / `worker3_ace_output.json` — the patient's
-  `fire_expression` string (the symbolic algebra described in the
-  paper) plus the DFA it was built from and a `human_review_flags` list
-  of anything the automatic checks could not confirm.
-- `ace_scorecard.json` — the final per-item (1–14) presence table, the
-  canonical 0–14 `canonical_ace_score`, its risk band, and any clinical
-  interaction/feedback flags.
-
-Two stages also write a second file alongside their main output:
-`validated_events_audit.json` (Step 3) records per-unit token usage,
-latency, and status for every LLM call, and both Step 3 and Step 6 write
-a `.resume`/`.resume.json` checkpoint (only used if you pass `--resume`
-on a re-run; Worker 2 deletes its own checkpoint on a normal completed
-run unless you pass `--keep-resume`, Step 3's is not auto-deleted).
-
-All output filenames above are the scripts' own defaults, written
-relative to your current working directory (not next to the input
-file) unless you pass an absolute path via `--output`/`-o`. No script
-writes a persistent log file — every script logs to the console only
-(via Python's `logging` module); redirect it yourself (e.g.
-`... 2>&1 | tee run.log`) if you want a saved log.
-
-## Security note
-
-Before this repository was made public, the source under `src/` was
-audited for three categories of risk, each checked with targeted searches
-rather than a single skim:
-
-1. **Identifying information** (real names, institutional email domains,
-   the clinical partner site's name) — none found in `src/`.
-2. **Hardcoded credentials** (API keys, secrets, tokens, passwords as
-   string literals) — none found; every `api_key`/`key` variable traces
-   to `os.environ.get(...)` or an equivalent environment-variable read.
-3. **Local file paths that would leak a system username** — none found.
-
-If you add new files to `src/`, re-run an equivalent check before pushing;
-none of the above is enforced automatically by anything in this
-repository.
-
-## A note on the clinical partner site's name
-
-The extraction system prompt (`prompts/extraction_system_prompt.txt`)
-originally named the specific clinical partner site providing the
-consultation notes. That name has been replaced with
-`[the partner clinical site]` throughout this repository, as a
-precaution for double-blind review; this is a presentational substitution
-only and changes no instruction given to any model. Whether this
-redaction is necessary, or whether the main paper already discloses the
-site by name, is a decision pending confirmation; see
-`technical_appendix.pdf` for the current state of that decision.
-
-## Data availability
-
-The 40-patient clinical evaluation dataset is not, and will not be, made
-publicly available, in accordance with the ethical requirements of
-working with real patient consultation notes; see `technical_appendix.pdf`,
-Section 8 (Annotator and Consensus Protocol), for how the reference
-standard was constructed. The full Ethics and Data Handling section
-covering consent and anonymization procedure in detail is still pending
-from the author team as of this writing.
-
-## Reproducibility
-
-Running the stages under "Running the pipeline" above reproduces the
-paper's described mechanism end-to-end on notes you supply; it does not
-by itself regenerate the main paper's Table 1/Table 2 numbers, since
-those were produced by human annotation over the pipeline's outputs,
-not a scripted aggregation (see "What this repository contains" above).
-
-See `technical_appendix.pdf` for the full reproducibility documentation:
-the complete ten-stage pipeline architecture (Section 1), the verbatim
-prompts used at every LLM-driven stage (Sections 4 and 5), the
-state-space construction and its real counts (Section 3), wall-clock
-latency and compute environment (Section 9), and the AAAI-26
-Reproducibility Checklist itself (Section 11), which states plainly, item
-by item, what is and is not yet confirmed about this repository's
-reproducibility.
-
-### Determinism and randomness
-
-No script in this repository imports Python's `random` module or seeds
-any RNG — there is no numeric seed to set, because there is no sampling,
-shuffling, or other stochastic step in the code itself. The only source
-of run-to-run variation is the LLM API calls, which every script
-configures for minimum variation: `temperature: 0` for classic chat
-models, and `reasoning_effort: "none"` for the GPT-5-family reasoning
-models that reject `temperature` outright (see e.g.
-`_build_llm_payload`/`_build_openai_payload` in each script). This
-minimizes but does not mathematically guarantee bit-identical output
-across runs or across time — provider-side inference is not guaranteed
-deterministic even at `temperature: 0`, and hosted models can be updated
-by the provider independent of this repository. Every script's
-`--selftest` flag, by contrast, is fully deterministic and offline: it
-runs against fixed synthetic inputs with no network or LLM call
-involved, so it is the one check in this repository with no
-reproducibility caveat at all.
-
-### Runtime and hardware
-
-No GPU is required. `sentence-transformers` (used in Steps 3–6; see
-"Running the pipeline") pulls in `torch`, but no code in this repository
-requests a CUDA device, and the paper's reported evaluation ran
-CPU-only. Concurrency is configurable and affects wall-clock time and
-API rate-limit exposure: Step 3 defaults to 5 concurrent units
-(`--concurrency`), Worker 2 (Step 6) defaults to 3. Beyond that, this
-repository does not itself state expected wall-clock runtime, peak
-memory, or the exact compute environment used for the paper's reported
-numbers — see `technical_appendix.pdf`, Section 9, for those figures;
-they are not duplicated here to avoid two sources of truth drifting
-apart.
+`CITATION.cff` holds the same reference in machine-readable form.
 
 ## License
 
-MIT (see `LICENSE`), a common choice for academic code releases and
-sufficient for the AAAI reproducibility checklist's requirement of "a
-license that allows free usage for research purposes." Two things to
-confirm before camera-ready release, not blocking for double-blind review:
-this is the intended license (not yet confirmed by the authors), and the
-placeholder copyright line ("The FiRE paper authors") should be replaced
-with real author names once the repository is de-anonymized. The clinical
-evaluation dataset itself is explicitly not covered by this license and is
-not included in this repository regardless; see "Data availability" above.
+MIT; see `LICENSE`. The license covers the code and prompts in this
+repository, not any clinical data.

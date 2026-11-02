@@ -1,45 +1,39 @@
 #!/usr/bin/env python3
 """
-LLM-based ACE scoring: direct mode (score from notes) or reconciliation mode
-(revise patient's self-filled form using notes).
+Direct-scoring baseline with the self-filled form (reconciliation), or
+notes only.
 
-Paper concept: this is the "reconciliation" comparison baseline the
-paper measures FiRE against (a superset of fire_llm_baseline.py, adding
-the self-form + notes reconciliation condition). Like the direct
-baseline, it collapses all of FiRE's intermediate stages (Event
-Extraction, Verification, State Space Mapping, Expression Construction,
-Projection, Scoring) into one LLM call.
+Paper concept: the plain baseline of the main paper's Table II in the
+notes-plus-form condition (Supplementary Material, Section S4).
+With --form, the model receives the individual's own answers and is asked
+to revise them, changing an item only when the notes give evidence for a
+different answer; the prompt states that the notes may not cover every
+item, and each changed item must carry a revision_reason. The script then
+compares each final answer with the form as it loaded it (never trusting
+the model's account of what it changed) and lists every change without a
+stated reason under unjustified_changes. These flags are for review only.
+Without --form it runs the same notes-only prompt as fire_llm_baseline.py.
 
-Pipeline position: not part of the FiRE pipeline itself.
-Main input: a raw consultation-notes text file, plus optionally a
-patient self-filled ACE form JSON. Main output: a per-item ACE scorecard
-JSON; in reconciliation mode, each item also records whether/why the
-model changed the patient's own answer.
-Key assumption: the reconciliation prompt never tells the model which
-items the notes are silent on — the model must decide that itself from
-the notes' actual content, which is what `revision_reason` audits.
+Model-call settings (Supplementary Material, Section S8): GPT-5.1 rejects
+an explicit temperature, so it is omitted and the API's default reasoning
+effort is used; Gemini 3.1 Pro and Grok-4.20 get temperature 0. The output
+limit is MAX_OUTPUT_TOKENS below. This script shares no code with the FiRE
+pipeline; the structure-guided and knowledge-matched baselines import its
+item texts, model registry and API calls.
 
-DIRECT MODE (default):
-  Queries the model to score the 14-item Adverse Childhood Experiences (ACE)
-  questionnaire directly from consultation notes.
-  
-  python3 script.py notes.txt --model gpt-5.1
+Usage:
+  python3 fire_llm_baseline_self_form_included.py notes.txt --form form.json --model gpt-5.1 -o result.json
+  python3 fire_llm_baseline_self_form_included.py notes.txt --model gpt-5.1          # notes only
+  python3 fire_llm_baseline_self_form_included.py notes.txt --form form.json --model gpt-5.1 --print-prompt
+  python3 fire_llm_baseline_self_form_included.py --selftest
 
-RECONCILIATION MODE:
-  Given both the patient's self-filled ACE form and the clinician's notes,
-  the model REVISES the form using the notes — changing an answer only where
-  notes provide evidence, leaving it unchanged where notes are silent. Tests
-  whether a model can reconcile two sources with discipline rather than
-  over-editing.
+The form is JSON: {"1": 1, "2": 0, ...}, a list of 14 values, or a list of
+{"item": n, "score": 0|1} objects (see read_form).
 
-  python3 script.py notes.txt --form form.json --model gpt-5.1 -o result.json
+API keys are read from environment variables (one for the chosen model):
+    OPENAI_API_KEY; GEMINI_API_KEY or GOOGLE_API_KEY; XAI_API_KEY or GROK_API_KEY
 
-Supported models: gpt-5.1, gemini-3.1-pro, grok-4.20-0309-reasoning, deepseek-v4-flash
-
-API keys are read from environment variables:
-    OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, DEEPSEEK_API_KEY (as needed)
-
-No third-party packages required — standard library only.
+Standard library only.
 """
 
 import argparse
@@ -74,21 +68,21 @@ ACE_QUESTIONS = OrderedDict([
 ])
 
 # Risk bands and clinical threshold
-HIGH_RISK_THRESHOLD = 7
+# The paper's clinical escalation line (ACE >= 4); same value as Worker 4.
+HIGH_RISK_THRESHOLD = 4
 HIGH_RISK_NOTE = (
-    "Adults reporting seven or more ACEs show roughly a thirtyfold increase "
-    "in the odds of attempted suicide (Dube et al. 2001). This threshold "
-    "is clinically significant for escalation decisions."
+    "Four or more ACEs significantly increase risks across mental health, "
+    "substance use, and violence outcomes (Hughes et al. 2017); the paper "
+    "treats ACE >= 4 as the clinical escalation line."
 )
 
 def risk_band(score: int) -> str:
     """Standard ACE-count risk bands, matching Worker 4's `canonical_risk`."""
     if score == 0:  return "MINIMAL"
     if score <= 1:  return "LOW"
-    if score <= 3:  return "MODERATE"
+    if score < HIGH_RISK_THRESHOLD:  return "MODERATE"
     if score <= 5:  return "HIGH"
-    if score == 6:  return "VERY HIGH"
-    return "VERY HIGH — CRITICAL (>=7)"
+    return "VERY HIGH"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -215,11 +209,6 @@ MODELS = {
         "url": "https://api.openai.com/v1/chat/completions",
         "key_env": ["OPENAI_API_KEY"],
     },
-    "deepseek-v4-flash": {
-        "provider": "openai",
-        "url": "https://api.deepseek.com/chat/completions",
-        "key_env": ["DEEPSEEK_API_KEY"],
-    },
     "gemini-3.1-pro": {
         "provider": "gemini",
         "url": "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -233,6 +222,10 @@ MODELS = {
     },
 }
 
+# Output limit for this script's calls: 16000 tokens, as in Supplementary
+# Table "Model-call parameters and fixed thresholds" (Section S8). This script
+# produced the plain-baseline results in the notes-plus-form condition;
+# fire_llm_baseline.py (8000 tokens) produced the notes-only ones.
 MAX_OUTPUT_TOKENS = 16000
 
 _REASONING_FAMILY_RE = re.compile(r'^(gpt-5|o1|o3|o4)', re.IGNORECASE)
@@ -379,7 +372,7 @@ def _build_openai_payload(model: str) -> dict:
 
 def call_openai_compatible(url: str, key: str, model: str,
                            system: str, user: str, verbose: bool = False) -> str:
-    """Call OpenAI-compatible API endpoint (used for gpt-5.1, DeepSeek, and Grok).
+    """Call an OpenAI-compatible endpoint (used for gpt-5.1 and Grok-4.20).
     
     Handles parameter adaptation for different model families. Retries on transient errors."""
     headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
@@ -578,7 +571,7 @@ def normalise_reconcile(raw: dict, form: dict) -> dict:
 # ─────────────────────────────────────────────────────────────
 # REPORTS
 # ─────────────────────────────────────────────────────────────
-CONF_LABEL = {"high": "HIGH  ", "medium": "MEDIUM", "low": "LOW \u26a0 "}
+CONF_LABEL = {"high": "HIGH  ", "medium": "MEDIUM", "low": "LOW!  "}
 
 def print_report(model_name: str, patient: str, result: dict):
     """Print the human-readable direct-mode per-item scorecard and summary to stdout."""
@@ -605,9 +598,10 @@ def print_report(model_name: str, patient: str, result: dict):
     print(f"  ACE SCORE         : {result['ace_score']}/14   ({result['risk']} risk)")
     print(f"  Items present     : {result['items_present']}")
     if result["crosses_high_risk_threshold"]:
-        print(f"  \u26a0\u26a0 CROSSES ACE>=7 THRESHOLD: {result['high_risk_threshold_note']}")
+        print(f"  !! CROSSES ACE>={HIGH_RISK_THRESHOLD} ESCALATION LINE: "
+              f"{result['high_risk_threshold_note']}")
     if result["low_confidence_items"]:
-        print(f"  Low confidence \u26a0  : ACE items {result['low_confidence_items']} — recommend human review")
+        print(f"  Low confidence    : ACE items {result['low_confidence_items']} — recommend human review")
     if not result["score_consistent"] and result["model_reported_score"] is not None:
         print(f"  NOTE: model self-reported {result['model_reported_score']}; "
               f"recomputed from item flags = {result['ace_score']}")
@@ -637,7 +631,7 @@ def print_report_reconcile(model_name: str, patient: str, result: dict):
         if it["reasoning"]:
             print(f"        REASONING: {it['reasoning'][:200]}")
         if it["changed"]:
-            rr = it["revision_reason"] or "(no reason given \u26a0)"
+            rr = it["revision_reason"] or "(no reason given)"
             print(f"        REVISION : {rr[:200]}")
 
     print("\n" + "-" * 72)
@@ -645,17 +639,18 @@ def print_report_reconcile(model_name: str, patient: str, result: dict):
     print(f"  REVISED SCORE     : {result['ace_score']}/14   ({result['risk']} risk)")
     print(f"  Items present     : {result['items_present']}")
     if result["crosses_high_risk_threshold"]:
-        print(f"  \u26a0\u26a0 CROSSES ACE>=7 THRESHOLD: {result['high_risk_threshold_note']}")
+        print(f"  !! CROSSES ACE>={HIGH_RISK_THRESHOLD} ESCALATION LINE: "
+              f"{result['high_risk_threshold_note']}")
     if result["changed_items"]:
         for c in result["changes"]:
-            rr = c["revision_reason"] or "(no reason given \u26a0)"
+            rr = c["revision_reason"] or "(no reason given)"
             print(f"    changed ACE-{c['item']}: {c['direction']} — {rr[:120]}")
     else:
         print("  Changes           : none (the notes did not revise the self-report)")
     if result["unjustified_changes"]:
-        print(f"  \u26a0 changes without a stated reason: ACE {result['unjustified_changes']}")
+        print(f"  ! changes without a stated reason: ACE {result['unjustified_changes']}")
     if result["low_confidence_items"]:
-        print(f"  Low confidence \u26a0  : ACE items {result['low_confidence_items']}")
+        print(f"  Low confidence    : ACE items {result['low_confidence_items']}")
     if not result["score_consistent"] and result["model_reported_score"] is not None:
         print(f"  NOTE: model self-reported {result['model_reported_score']}; "
               f"recomputed from item flags = {result['ace_score']}")
@@ -685,8 +680,9 @@ def selftest() -> bool:
     check(set(["gpt-5.1", "gemini-3.1-pro", "grok-4.20-0309-reasoning"]) <= set(MODELS),
           "All expected baseline models are registered")
 
-    check(risk_band(6) == "VERY HIGH" and risk_band(7).startswith("VERY HIGH — CRITICAL"),
-          "Risk band distinguishes ACE score 6 from 7")
+    check(risk_band(3) == "MODERATE" and risk_band(4) == "HIGH" and risk_band(6) == "VERY HIGH"
+          and HIGH_RISK_THRESHOLD == 4,
+          "Escalation line is ACE >= 4, as in the paper")
     check(risk_band(0) == "MINIMAL" and risk_band(1) == "LOW"
           and risk_band(2) == "MODERATE" and risk_band(5) == "HIGH",
           "Other risk band boundaries are correct")
@@ -694,15 +690,24 @@ def selftest() -> bool:
     p1 = _build_openai_payload("gpt-5.1")
     check("temperature" not in p1 and p1.get("max_completion_tokens") == MAX_OUTPUT_TOKENS,
           "Reasoning models omit temperature in payload")
-    p2 = _build_openai_payload("deepseek-v4-flash")
+    p2 = _build_openai_payload("grok-4.20-0309-reasoning")
     check(p2.get("temperature") == 0,
-          "Non-reasoning models include temperature")
+          "Grok-4.20 gets temperature 0")
+    check(set(MODELS) == {"gpt-5.1", "gemini-3.1-pro", "grok-4.20-0309-reasoning"},
+          "Exactly the paper's three models are registered")
 
     import tempfile
+
+    def _read_and_remove(path):
+        try:
+            return read_form(path)
+        finally:
+            os.unlink(path)
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump([1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], f)
         bare_list_path = f.name
-    form = read_form(bare_list_path)
+    form = _read_and_remove(bare_list_path)
     check(sum(form.values()) == 4,
           "Bare list of scalars is read positionally, not silently zeroed")
     check(form[1] == 1 and form[2] == 0 and form[7] == 1,
@@ -711,14 +716,14 @@ def selftest() -> bool:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump({"1": 1, "ACE-2": 0, "ACE3": {"present": True}}, f)
         dict_path = f.name
-    form2 = read_form(dict_path)
+    form2 = _read_and_remove(dict_path)
     check(form2[1] == 1 and form2[2] == 0 and form2[3] == 1,
           "Dict-shaped forms (various key styles) still parse correctly")
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump([{"item": 1, "score": 1}, {"item": 5, "present": False}], f)
         listdict_path = f.name
-    form3 = read_form(listdict_path)
+    form3 = _read_and_remove(listdict_path)
     check(form3[1] == 1 and form3[5] == 0,
           "List-of-dict forms still parse correctly")
 

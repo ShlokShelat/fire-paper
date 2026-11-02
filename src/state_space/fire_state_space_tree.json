@@ -1,6 +1,6 @@
 {
-  "_note": "This is a schema placeholder, not the actual shared state space built from development data. The real file's domains/clusters/states content is not reproduced here.",
-  "_schema_documented_at": "technical_appendix.pdf, Section 3.1 (Structure)",
+  "_note": "Schema only. The state space used in the paper was built from development data (notes from individuals disjoint from the 40 evaluation individuals) and is not released. Worker 2 reads and writes this structure; a new state is written with the fields below. See Supplementary Material, Section S3.",
+  "_schema_documented_at": "Supplementary Material, Section S3 (State Space)",
   "domains": {
     "example_domain_key": {
       "domain_name": "string",

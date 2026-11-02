@@ -11,7 +11,7 @@ downstream stages (see fire_worker3_ace.py / fire_worker4_ace.py).
 
 Pipeline position: run after Worker 2 (fire_worker2.py) has resolved
 events to state-space codes, and before an instrument-specific
-projection (e.g. fire_worker3_ace.py) or a baseline comparison.
+projection (fire_worker3_ace.py for ACE).
 Builds the complete patient FiRE Expression (all resolved clinical states)
 using a deterministic finite automaton. This is the general Worker 3 file,
 generalised to run over all clinical states without instrument-specific gating.
@@ -24,9 +24,15 @@ already final by this point — this stage only assembles temporal
 structure (tiers, unions, self-loops, feedback) from already-resolved
 states; it does not re-decide what a state maps to.
 
+The run also writes <output>.html, an interactive view of the automaton.
+The page loads the vis-network library from cdnjs.cloudflare.com when it is
+opened, unless a file vis-network-bundle.js is placed next to this script,
+in which case the library is inlined and the page works offline. Nothing is
+fetched while the script runs.
+
 Usage:
-  python3 fire_worker3_general.py patient01_final.json --output patient01_w3.json
-  python3 fire_worker3_general.py patient01_final.json --include-new-states --verbose
+  python3 fire_worker3_general.py final_mapped_events.json -o worker3_output.json
+  python3 fire_worker3_general.py final_mapped_events.json --exclude-provisional-states --verbose
   python3 fire_worker3_general.py --selftest
 """
 
@@ -77,14 +83,6 @@ SIMULTANEITY_MARKERS = [
     "during the same years", "during the same period", "meanwhile",
     "in parallel", "alongside",
 ]
-
-RELATION_TOKENS = {
-    "father", "mother", "husband", "wife", "cousin", "uncle", "aunt",
-    "brother", "sister", "grandmother", "grandfather", "stepmother",
-    "stepfather", "teacher", "partner", "boyfriend", "girlfriend",
-    "friend", "classmate", "neighbour", "neighbor", "parents", "sibling",
-    "colleague", "manager", "employer",
-}
 
 _NUM_WORDS = {
     "one": 1, "once": 1, "twice": 2, "two": 2, "three": 3, "thrice": 3,
@@ -178,24 +176,42 @@ def infer_frequency(text: str) -> str:
     return "single"
 
 
+def _own_text(e: dict) -> str:
+    """The text that belongs to one sub-event alone: its supporting quote and
+    its own event text, plus the source sentence only when no other
+    sub-event shares that sentence. Worker 2 gives every sub-event of a
+    source line the same source_sentence, so reading repetition or
+    reactivation language from the shared sentence would leak one
+    sub-event's wording (e.g. "bullied frequently") onto its siblings."""
+    parts = [e.get("supporting_quote") or "", e.get("event") or ""]
+    if not e.get("source_shared"):
+        parts.append(e.get("source_sentence") or "")
+    return " ".join(p for p in parts if p)
+
+
 def parse_worker2_output(data: dict) -> tuple:
     """
     Pull every resolved sub-event from a Worker 2 output.
 
     Returns (resolved, new_states, others):
-      resolved   — RESOLVED states: graphed by default
-      new_states — RESOLVED states flagged is_new_state: only graphed with --include-new-states
+      resolved   — RESOLVED states mapped to an existing state
+      new_states — RESOLVED states Worker 2 created as provisional; graphed by
+                   default (the paper uses a provisional state immediately in
+                   the current individual's trajectory), excluded only with
+                   --exclude-provisional-states
       others     — NOT_ADVERSE / UNMATCHED: reported, never graphed
     """
     resolved, new_states, others = [], [], []
-    for ev in (data.get("events") or []):
+    for ev_idx, ev in enumerate(data.get("events") or []):
         if ev.get("status") != "COMPOUND":
             continue
         life_stage  = str(ev.get("life_stage") or "unknown").lower()
         line_number = int(ev.get("line_number") or 0)
         source      = str(ev.get("source_sentence") or ev.get("event") or "")
+        source_shared = sum(1 for s in (ev.get("sub_events") or [])
+                            if str(s.get("event") or "").strip()) > 1
 
-        for sub in (ev.get("sub_events") or []):
+        for sub_idx, sub in enumerate(ev.get("sub_events") or []):
             sub_status   = str(sub.get("status") or "UNKNOWN")
             match_type   = _W2_STATUS_MAP.get(sub_status, "UNMATCHED")
             cluster_name = str(sub.get("cluster_name") or "Unknown")
@@ -214,21 +230,22 @@ def parse_worker2_output(data: dict) -> tuple:
             else:
                 confidence = 0.0
 
-            combined_text = source + " " + event_text
+            own_text = _own_text({"supporting_quote": sub.get("supporting_quote"),
+                                  "event": event_text, "source_sentence": source,
+                                  "source_shared": source_shared})
             onset_i = _coerce_age(sub.get("onset_age"))
             end_i   = _coerce_age(sub.get("end_age"))
 
+            # Unique per sub-event: Worker 2's sub_id is not unique in practice
+            # (several sub-events of one unit can share it), and verification
+            # removes findings by this id, so it must name exactly one sub-event.
             _sub_id = str(sub.get("sub_id") or "").strip()
-            if _sub_id:
-                event_uid = _sub_id
-            else:
-                import hashlib as _hashlib
-                _h = _hashlib.sha1(event_text.strip().lower().encode("utf-8")).hexdigest()[:8]
-                event_uid = f"{state_code}:{_h}"
+            event_uid = f"{_sub_id or state_code or 'sub'}@e{ev_idx}.s{sub_idx}"
 
             record = {
                 "state_code":          state_code,
                 "event_uid":           event_uid,
+                "sub_id":              _sub_id or None,
                 "cluster_name":        cluster_name,
                 "cluster":             "",
                 "match_type":          match_type,
@@ -243,9 +260,10 @@ def parse_worker2_output(data: dict) -> tuple:
                 "is_recollection":     bool(sub.get("is_recollection", False)),
                 "recollection_reference": sub.get("recollection_reference"),
                 "source_sentence":     source,
+                "source_shared":       source_shared,
                 "event":               event_text,
                 "experience_type":     exp_type,
-                "frequency":           infer_frequency(combined_text),
+                "frequency":           infer_frequency(own_text),
                 "mapping_reason":      reason,
                 "sub_status":          sub_status,
                 "unmatched_reason":    reason if match_type == "UNMATCHED" else "",
@@ -255,6 +273,7 @@ def parse_worker2_output(data: dict) -> tuple:
                 "signal":              sub.get("signal"),
                 "signals":             sub.get("signals") or ([sub.get("signal")] if sub.get("signal") else []),
                 "ace_items_hint":      sub.get("ace_items_hint"),
+                "ace14_items_hint":    sub.get("ace14_items_hint"),
                 "perpetrator":         sub.get("perpetrator"),
                 "perpetrator_class":   sub.get("perpetrator_class"),
                 "mdi_items_hint":      sub.get("mdi_items_hint"),
@@ -333,8 +352,8 @@ def resolve_onset_end(r: dict) -> tuple:
 
 
 def _has_repetition_language(entries: list) -> bool:
-    text = " ".join((e.get("source_sentence") or "") + " " + (e.get("event") or "")
-                    for e in entries).lower()
+    """True if any entry's own text (see `_own_text`) uses repetition language."""
+    text = " ".join(_own_text(e) for e in entries).lower()
     return any(w in text for w in REPETITION_LANGUAGE)
 
 
@@ -398,10 +417,14 @@ def build_interval_timeline(records: list) -> list:
         active = [r for r in valid if r["_onset"] <= hi and r["_end"] >= lo]
         if not active:
             continue
+        # One member per cluster symbol: each cluster owns exactly one symbol,
+        # so two states of the same cluster active in the same interval are one
+        # occurrence of that symbol (their entries are kept), not "(a+a)".
         members: "OrderedDict[str, dict]" = OrderedDict()
-        for r in sorted(active, key=lambda x: (x["_onset"], x.get("line_number", 0))):
-            mkey = (r["state_code"], r.get("_onset"), r.get("_end"))
+        for r in sorted(active, key=lambda x: (x["_onset"], x.get("line_number", 0),
+                                               x.get("_idx", 0))):
             sym = r["cluster"]
+            mkey = sym
             if mkey not in members:
                 members[mkey] = {"symbol": sym, "cluster_name": r["cluster_name"],
                                  "state_code": r["state_code"], "codes": [], "entries": []}
@@ -410,12 +433,16 @@ def build_interval_timeline(records: list) -> list:
             members[mkey]["entries"].append(r)
         raw_segments.append({"interval": (lo, hi), "tier": age_to_tier(lo), "members": members})
 
+    # Merge neighbouring slices with identical members, but only when they
+    # touch in time: a year with no active state between them is a gap, and
+    # a gap is what makes a later occurrence a reactivation (feedback).
     collapsed = []
     for seg in raw_segments:
         if collapsed:
             prev = collapsed[-1]
             if set(prev["members"].keys()) == set(seg["members"].keys()) \
-               and prev["tier"] == seg["tier"]:
+               and prev["tier"] == seg["tier"] \
+               and seg["interval"][0] == prev["interval"][1] + 1:
                 prev["interval"] = (prev["interval"][0], seg["interval"][1])
                 for mkey, m in seg["members"].items():
                     pm = prev["members"][mkey]
@@ -451,7 +478,8 @@ def build_union_aware_tiers(working: list, alphabet_map: dict) -> "OrderedDict":
     # sequentially after the latest known age so they still get a
     # deterministic position in the timeline.
     no_age = []
-    for r in working:
+    for idx, r in enumerate(working):
+        r["_idx"] = idx  # sub-event order within a line, for stable union ordering
         r["cluster"] = alphabet_map.get(r["cluster_name"], r["cluster_name"][:4])
         o, e, real = resolve_onset_end(r)
         r["_onset"], r["_end"], r["_has_real_span"] = o, e, real
@@ -522,7 +550,14 @@ def _explicit_numeric(text: str) -> Optional[int]:
 
 
 def component2_exponent(block: dict) -> dict:
-    """Compute self-loop strength from language and span signals."""
+    """Self-loop exponent of one timeline block.
+
+    The self-loop fires only on explicit repetition language in an entry's
+    own text (REPETITION_LANGUAGE, e.g. "frequently"), never on the length
+    of a span (Supplementary Material, Section S1): exponent 2 with a
+    self-loop, else 1. Feedback adds +2 separately (detect_feedbacks). The
+    frequency tag, span length and explicit counts are recorded under
+    "signals" for inspection only; they do not change the exponent."""
     entries = block["entries"]
     is_loop = _self_loops(entries)
 
@@ -537,7 +572,7 @@ def component2_exponent(block: dict) -> dict:
 
     sig_numeric = 0
     for e in entries:
-        n = _explicit_numeric((e.get("source_sentence") or "") + " " + (e.get("event") or ""))
+        n = _explicit_numeric(_own_text(e))
         if n:
             sig_numeric = max(sig_numeric, n)
 
@@ -574,16 +609,10 @@ def detect_marker_union(block_a: dict, block_b: dict) -> bool:
 # FEEDBACK DETECTOR — structural and language-based
 # ─────────────────────────────────────────────────────────────
 
-def _has_reactivation_language(block: dict) -> bool:
-    """True if the block's text contains language implying an earlier
-    experience was re-triggered (see REACTIVATION_LANGUAGE)."""
-    return any(p in _block_text(block) for p in REACTIVATION_LANGUAGE)
-
-
 def _reactivation_reference(block: dict) -> Optional[str]:
     """Extract what a reactivation block's text says was reactivated
-    (e.g. a relation or "childhood"), used to target the correct earlier
-    block as the feedback source in `detect_feedbacks`."""
+    (e.g. a relation or "childhood"), for the review-only report built by
+    `detect_reactivation_mentions`."""
     text = _block_text(block)
     patterns = [
         r"remind(?:ed|s)? (?:him|her|them) of (?:the |her |his |their )?([a-z][a-z\s-]{2,40})",
@@ -603,37 +632,51 @@ def _reactivation_reference(block: dict) -> Optional[str]:
 
 
 def _block_is_no_age(b: dict) -> bool:
-    """A block is no-age if all entries lack a real onset."""
-    return all(e.get("_no_age") for e in b.get("entries", []))
+    """A block is no-age if all entries lack a real onset (internal `_no_age`,
+    or `is_no_age` once serialised into `blocks`)."""
+    return all(e.get("_no_age") or e.get("is_no_age") for e in b.get("entries", []))
+
+
+def _cluster_episodes(flat: list) -> "dict[str, list]":
+    """Group dated blocks by cluster symbol into episodes: maximal runs of
+    blocks whose intervals are contiguous or overlapping. A gap of at least
+    one year with the cluster absent starts a new episode."""
+    by_cluster: "dict[str, list]" = defaultdict(list)
+    for b in flat:
+        if not _block_is_no_age(b):
+            by_cluster[b["cluster"]].append(b)
+    episodes = {}
+    for sym, blocks in by_cluster.items():
+        runs = []
+        for b in sorted(blocks, key=lambda x: (x["interval"][0], x["interval"][1])):
+            if runs and b["interval"][0] <= runs[-1]["end"] + 1:
+                runs[-1]["blocks"].append(b)
+                runs[-1]["end"] = max(runs[-1]["end"], b["interval"][1])
+            else:
+                runs.append({"start": b["interval"][0], "end": b["interval"][1], "blocks": [b]})
+        episodes[sym] = runs
+    return episodes
 
 
 def detect_feedbacks(flat: list) -> list:
-    """Detect feedback (later reactivates earlier) via structure and language."""
-    flat = [b for b in flat if not _block_is_no_age(b)]
+    """Detect feedback: the same cluster recurring after a temporal gap.
+
+    Each later episode of a cluster (a disjoint span after a gap) is one
+    reactivation. It is linked to the cluster's earliest episode by one
+    bidirectional edge pair, anchored on the first block of each episode, so
+    a reactivation adds +2 exactly once, however many interval slices the
+    later episode is cut into. Feedback is keyed by cluster, not by state
+    code: two different states of one cluster (e.g. two betrayals) are the
+    same construct recurring."""
     feedbacks = []
-    seen_pairs = set()
-
-    # Structural: same state recurs after temporal gap
-    by_code: "dict[str, list]" = defaultdict(list)
-    for b in flat:
-        code = b["codes"][0] if b["codes"] else node_name(b)
-        by_code[code].append(b)
-
-    for code, occs in by_code.items():
-        if len(occs) < 2:
+    for sym, runs in _cluster_episodes(flat).items():
+        if len(runs) < 2:
             continue
-        occs_sorted = sorted(occs, key=lambda b: b["interval"][0])
-        earliest = occs_sorted[0]
-        earliest_end = earliest["interval"][1]
-        for later in occs_sorted[1:]:
-            later_onset = later["interval"][0]
-            if later_onset <= earliest_end + 1:
-                earliest_end = max(earliest_end, later["interval"][1])
-                continue
-            key = (node_name(later), node_name(earliest))
-            if key in seen_pairs:
-                continue
-            seen_pairs.add(key)
+        first = runs[0]
+        earliest = first["blocks"][0]
+        for run in runs[1:]:
+            later = run["blocks"][0]
+            later_codes = list(dict.fromkeys(c for b in run["blocks"] for c in b["codes"]))
             feedbacks.append({
                 "cluster":              earliest["cluster"],
                 "cluster_name":         earliest["cluster_name"],
@@ -641,65 +684,39 @@ def detect_feedbacks(flat: list) -> list:
                 "trigger_cluster_name": later["cluster_name"],
                 "earlier_node":         node_name(earliest),
                 "later_node":           node_name(later),
-                "earlier_interval":     earliest["interval"],
-                "later_interval":       later["interval"],
-                "state_code":           code,
-                "evidence":             ["same_state_recurrence_after_gap"],
+                "earlier_interval":     (first["start"], first["end"]),
+                "later_interval":       (run["start"], run["end"]),
+                "state_code":           earliest["codes"][0] if earliest["codes"] else None,
+                "later_state_codes":    later_codes,
+                "evidence":             ["same_cluster_recurrence_after_gap"],
                 "link_confidence":      "high",
                 "needs_review":         False,
-                "source_sentences":     [e.get("source_sentence") for e in later["entries"]],
+                "source_sentences":     [e.get("source_sentence") for b in run["blocks"]
+                                         for e in b["entries"]],
             })
-
-    # Language-based: reactivation language in later block
-    for i, later in enumerate(flat):
-        if not _has_reactivation_language(later):
-            continue
-        earlier_candidates = flat[:i]
-        if not earlier_candidates:
-            continue
-        ref = _reactivation_reference(later)
-        target = None
-        reason = None
-        if ref:
-            ref_words = set(re.findall(r"[a-z]+", ref))
-            rel = ref_words & RELATION_TOKENS
-            if rel:
-                for e in reversed(earlier_candidates):
-                    if rel & set(re.findall(r"[a-z]+", _block_text(e))):
-                        target, reason = e, f"reference_relation:{sorted(rel)}"
-                        break
-        if target is None:
-            same = [e for e in earlier_candidates if e["cluster"] == later["cluster"]]
-            if same:
-                target, reason = same[0], "language_same_cluster_earliest"
-        if target is None:
-            target, reason = earlier_candidates[-1], "language_nearest_earlier"
-
-        key = (node_name(later), node_name(target))
-        if target is later or key in seen_pairs:
-            continue
-        later_code = later["codes"][0] if later["codes"] else None
-        target_code = target["codes"][0] if target["codes"] else None
-        if (later_code and later_code == target_code
-                and later["interval"][0] <= target["interval"][1] + 1):
-            continue
-        seen_pairs.add(key)
-        feedbacks.append({
-            "cluster":              target["cluster"],
-            "cluster_name":         target["cluster_name"],
-            "trigger_cluster":      later["cluster"],
-            "trigger_cluster_name": later["cluster_name"],
-            "earlier_node":         node_name(target),
-            "later_node":           node_name(later),
-            "earlier_interval":     target["interval"],
-            "later_interval":       later["interval"],
-            "evidence":             ["reactivation_language", f"link:{reason}"],
-            "link_confidence":      "high" if ref else "medium",
-            "needs_review":         False,
-            "source_sentences":     [e.get("source_sentence") for e in later["entries"]],
-        })
-
     return feedbacks
+
+
+def detect_reactivation_mentions(flat: list) -> list:
+    """Report blocks whose own text says an earlier experience was
+    re-triggered ("reminded her of ..."). Reported for review only: the
+    paper's feedback operator is defined structurally (same cluster after a
+    gap), so language alone never adds an edge or changes an exponent."""
+    flat = [b for b in flat if not _block_is_no_age(b)]
+    mentions = []
+    for later in flat:
+        text = " ".join(_own_text(e) for e in later["entries"]).lower()
+        if not any(p in text for p in REACTIVATION_LANGUAGE):
+            continue
+        mentions.append({
+            "node":         node_name(later),
+            "cluster":      later["cluster"],
+            "cluster_name": later["cluster_name"],
+            "interval":     later["interval"],
+            "reference":    _reactivation_reference(later),
+            "source_sentences": [e.get("source_sentence") for e in later["entries"]],
+        })
+    return mentions
 
 
 # ─────────────────────────────────────────────────────────────
@@ -724,7 +741,12 @@ class DFA:
 
 
 def node_name(block: dict) -> str:
-    """Unique node identity per (state_code, interval)."""
+    """Unique node identity per (cluster occurrence, interval). Once assigned
+    (`node_id`), the identity is fixed, so an instrument projection that
+    clamps a block's interval still refers to the same node its feedback
+    edges were built against."""
+    if block.get("node_id"):
+        return block["node_id"]
     tier_init = block["tier"][0].upper()
     code = block["codes"][0].replace("-", "") if block["codes"] else "x"
     iv = block.get("interval", (0, 0))
@@ -861,13 +883,13 @@ def _fmt_exp(sym: str, exp: int) -> str:
 
 def component5_build_string(tiers, exponents, feedbacks) -> str:
     """Render the FiRE Expression string."""
-    fb_initiator_nodes = {f["later_node"] for f in feedbacks}
+    fb_count = defaultdict(int)
+    for f in feedbacks:
+        fb_count[f["later_node"]] += 1
 
     def _eff_exp(block) -> int:
-        base = exponents[id(block)]["exponent"]
-        if node_name(block) in fb_initiator_nodes:
-            base += 2
-        return base
+        """Self-loop exponent plus 2 for each feedback that reactivates this node."""
+        return exponents[id(block)]["exponent"] + 2 * fb_count[node_name(block)]
 
     parts = []
     for tier in TIER_ORDER:
@@ -983,8 +1005,42 @@ def _fmt_not_adverse(records: list) -> list:
 # MAIN BUILD FUNCTION
 # ─────────────────────────────────────────────────────────────
 
+def _serialise_entry(e: dict) -> dict:
+    """JSON-safe copy of one timeline entry: drop the internal span keys
+    (leading underscore) and expose the no-age marker under a public name."""
+    out = {k: v for k, v in e.items() if not k.startswith("_")}
+    out["is_no_age"] = bool(e.get("_no_age"))
+    return out
+
+
+def _serialise_blocks(tiers: "OrderedDict", exponents: dict, fb_count: dict) -> list:
+    """The timeline blocks an instrument projection works from, in traversal
+    order: one per (cluster, interval) occurrence, with its node id, union
+    group, self-loop exponent, feedback count and the entries behind it."""
+    out = []
+    for b in _flatten_ordered(tiers):
+        ex = exponents[id(b)]
+        nid = node_name(b)
+        out.append({
+            "node_id":        nid,
+            "cluster":        b["cluster"],
+            "cluster_name":   b["cluster_name"],
+            "state_code":     b.get("state_code"),
+            "codes":          list(b["codes"]),
+            "tier":           b["tier"],
+            "interval":       list(b["interval"]),
+            "union_group":    b.get("union_group"),
+            "exponent":       ex["exponent"],
+            "is_self_loop":   ex["is_self_loop"],
+            "feedback_count": fb_count.get(nid, 0),
+            "confidence":     ex["confidence"],
+            "entries":        [_serialise_entry(e) for e in b["entries"]],
+        })
+    return out
+
+
 def build_expression(resolved_records, new_state_records, other_records,
-                     alphabet_map, include_new_states=False) -> dict:
+                     alphabet_map, include_new_states=True) -> dict:
     """Top-level assembly: turn parsed Worker 2 records into the full
     FiRE Expression output.
 
@@ -1011,7 +1067,8 @@ def build_expression(resolved_records, new_state_records, other_records,
             "simultaneity": [], "validation": {},
             "human_review_flags": [{"check": "minimum_events", "details": "0 eligible events"}],
             "raw_traversal": [], "dfa": {"nodes": [], "edges": []},
-            "node_metadata": {}, "resolved_states": [],
+            "node_metadata": {}, "resolved_states": [], "blocks": [],
+            "reactivation_mentions": [],
             "new_states_created": _fmt_new_states(new_state_records),
             "unmatched_events": _fmt_unmatched(other_records),
             "not_adverse_events": _fmt_not_adverse(other_records),
@@ -1057,10 +1114,18 @@ def build_expression(resolved_records, new_state_records, other_records,
                     "signals": ["age_overlap"],
                 })
 
+    # Fix every block's node identity before anything refers to it.
+    flat = _flatten_ordered(tiers)
+    for b in flat:
+        b["node_id"] = node_name(b)
+
     # Feedback detection, then DFA construction/traversal, then rendering
     # the final expression string from the same tiers/exponents/feedbacks.
-    flat = _flatten_ordered(tiers)
     feedbacks = detect_feedbacks(flat)
+    reactivation_mentions = detect_reactivation_mentions(flat)
+    fb_count = defaultdict(int)
+    for f in feedbacks:
+        fb_count[f["later_node"]] += 1
 
     dfa = component35_build_dfa(tiers, exponents, feedbacks)
     raw_trace = component4_traverse(dfa)
@@ -1119,6 +1184,15 @@ def build_expression(resolved_records, new_state_records, other_records,
     if checks["confidence_floor"]["flagged"]:
         review.append({"check": "confidence_floor",
                        "details": checks["confidence_floor"]["flagged"]})
+    provisional_in_fe = sorted({e.get("state_code") for b in flat for e in b["entries"]
+                                if e.get("is_new_state")
+                                or e.get("mapped_state_status") == "provisional"})
+    if provisional_in_fe:
+        review.append({"check": "provisional_states_in_expression",
+                       "details": {"state_codes": provisional_in_fe,
+                                   "note": "used immediately in this trajectory; promoted to "
+                                           "the shared state space only after psychotherapist "
+                                           "review"}})
 
     resolved_states = {}
     for tier, blocks in tiers.items():
@@ -1180,6 +1254,8 @@ def build_expression(resolved_records, new_state_records, other_records,
                 "edges": [{k: e[k] for k in ("src", "dst", "label", "kind")} for e in dfa.edges]},
         "node_metadata": node_metadata,
         "resolved_states": list(resolved_states.values()),
+        "blocks": _serialise_blocks(tiers, exponents, fb_count),
+        "reactivation_mentions": reactivation_mentions,
         "new_states_created": _fmt_new_states(new_state_records),
         "unmatched_events": _fmt_unmatched(other_records),
         "not_adverse_events": _fmt_not_adverse(other_records),
@@ -1191,21 +1267,28 @@ def build_expression(resolved_records, new_state_records, other_records,
 # ─────────────────────────────────────────────────────────────
 
 def _mk_record(state_code, cluster_name, onset, end, event, exp_type="event",
-               is_ongoing=False, sub_id=None, life_stage="childhood"):
-    """Build a minimal synthetic resolved-state record for self-test fixtures."""
+               is_ongoing=False, sub_id=None, life_stage="childhood",
+               source=None, quote=None, line_number=1, is_new_state=False):
+    """Build a minimal synthetic resolved-state record for self-test fixtures.
+    `source` is the (possibly shared) source sentence and `quote` the
+    sub-event's own supporting quote; without `source`, the record is the
+    only sub-event of its line, as before."""
     return {
         "state_code": state_code, "event_uid": sub_id or state_code,
         "cluster_name": cluster_name, "cluster": "",
         "match_type": "RESOLVED", "combined_confidence": 0.9,
-        "is_new_state": False, "mapped_state_status": "permanent",
-        "life_stage": life_stage, "line_number": 1,
+        "is_new_state": is_new_state,
+        "mapped_state_status": "provisional" if is_new_state else "permanent",
+        "life_stage": life_stage, "line_number": line_number,
         "onset_age": onset, "end_age": end, "is_ongoing": is_ongoing,
         "is_recollection": False, "recollection_reference": None,
-        "source_sentence": event, "event": event, "experience_type": exp_type,
+        "source_sentence": source if source is not None else event,
+        "source_shared": source is not None,
+        "event": event, "experience_type": exp_type,
         "frequency": "single", "mapping_reason": "", "sub_status": "MAPPED",
         "unmatched_reason": "", "not_adverse_reason": "",
-        "supporting_quote": None, "quote_grounded": None,
-        "signal": None, "signals": [], "ace_items_hint": None,
+        "supporting_quote": quote, "quote_grounded": True if quote else None,
+        "signal": None, "signals": [], "ace_items_hint": None, "ace14_items_hint": None,
         "perpetrator": None, "perpetrator_class": None,
         "mdi_items_hint": None, "mdi_frequency": None, "gad_items_hint": None,
         "gad_frequency": None, "isi_items_hint": None, "isi_severity": None,
@@ -1214,10 +1297,61 @@ def _mk_record(state_code, cluster_name, onset, end, event, exp_type="event",
     }
 
 
+# The main paper's worked example (Section "FiRE Model on the Worked Example"),
+# shaped the way Worker 2 emits it: every sub-event of a note line carries
+# that line's full source sentence, plus its own supporting quote.
+WORKED_EXAMPLE_LINES = {
+    1: "Age 0 to 8: father emotionally abusive and controlling; client felt unloved and "
+       "did not belong; bullied frequently at school for a speech difficulty and wearing glasses.",
+    2: "Age 11: mother died of cancer.",
+    3: "Age 12 to 16: father beat and pinched her, with continuing emotional abuse; "
+       "depressed mood and overeating.",
+    4: "Age 22 to 24: a trusted friend took the client's money and left, her first major betrayal.",
+    5: "Age 35 to 37: the client discovered her husband's affair.",
+    6: "Age 40 to 42 (current): divorced and living with family, with persistent low mood "
+       "and chronic insomnia.",
+}
+
+
+def worked_example_records() -> list:
+    """Resolved-state records for the main paper's worked example (Table I)."""
+    L = WORKED_EXAMPLE_LINES
+    def rec(code, cluster, onset, end, event, quote, line, sub_id=None, stage="childhood",
+            exp_type="event"):
+        return _mk_record(code, cluster, onset, end, event, exp_type=exp_type,
+                          sub_id=sub_id or code, life_stage=stage, source=L[line],
+                          quote=quote, line_number=line)
+    return [
+        rec("q-a", "Emotional Abuse", 0, 8, "Father was emotionally abusive and controlling",
+            "father emotionally abusive and controlling", 1),
+        rec("q-b", "Felt Unloved", 0, 8, "Client felt unloved and did not belong",
+            "client felt unloved and did not belong", 1, exp_type="symptom"),
+        rec("q-c", "Peer Bullying", 0, 8, "Client was bullied at school by peers",
+            "bullied frequently at school", 1),
+        rec("q-d", "Caregiver Death", 11, 11, "Mother died of cancer",
+            "mother died of cancer", 2),
+        rec("q-e", "Physical Abuse", 12, 16, "Father beat and pinched client",
+            "father beat and pinched her", 3, stage="teenage"),
+        rec("q-a", "Emotional Abuse", 12, 16, "Father's emotional abuse continued",
+            "continuing emotional abuse", 3, sub_id="q-a-2", stage="teenage"),
+        rec("q-p", "Depressive Symptoms", 12, 16, "Client had depressed mood and overeating",
+            "depressed mood and overeating", 3, stage="teenage", exp_type="symptom"),
+        rec("q-f1", "Betrayal", 22, 24, "A trusted friend took client's money and left",
+            "a trusted friend took the client's money and left", 4, stage="adult"),
+        rec("q-f2", "Betrayal", 35, 37, "Client discovered husband's affair",
+            "the client discovered her husband's affair", 5, stage="adult"),
+        rec("q-g", "Depression", 40, 42, "Client has persistent low mood",
+            "persistent low mood", 6, stage="adult", exp_type="symptom"),
+        rec("q-h", "Sleep Disturbance", 40, 42, "Client has chronic insomnia",
+            "chronic insomnia", 6, stage="adult", exp_type="symptom"),
+    ]
+
+
 def selftest() -> bool:
-    """Offline regression guard: exercises union grouping, self-loop
-    exponents (language- and span-based), feedback-driven exponent
-    boosts, and tier concatenation against small synthetic timelines."""
+    """Offline regression guard: rebuilds the paper's worked example from
+    Worker 2-shaped records (shared source sentences) and checks union,
+    self-loop, feedback and concatenation exactly, then exercises the edge
+    cases each operator rule exists for."""
     ok = True
 
     def check(cond, name):
@@ -1225,45 +1359,70 @@ def selftest() -> bool:
         print(f"  [{'PASS' if cond else 'FAIL'}] {name}")
         ok = ok and bool(cond)
 
-    records = [
-        _mk_record("st-a", "Emotional Abuse", 0, 8,
-                  "Father emotionally abusive and controlling"),
-        _mk_record("st-b", "Unloved", 0, 8, "Client felt unloved"),
-        _mk_record("st-c", "Peer Bullying", 0, 8,
-                  "Bullied frequently and repeatedly at school", exp_type="event"),
-        _mk_record("st-d", "Caregiver Death", 11, 11, "Mother died of cancer"),
-        _mk_record("st-e", "Physical Abuse", 12, 16, "Father beat and pinched her"),
-        _mk_record("st-a", "Emotional Abuse", 12, 16,
-                  "Father's emotional abuse continued", sub_id="st-a-2"),
-    ]
+    records = worked_example_records()
     alphabet_map = assign_alphabets(records)
-    result = build_expression(records, [], [], alphabet_map, include_new_states=False)
+    result = build_expression(records, [], [], alphabet_map)
     fe = result["fire_expression"]
     print(f"  FE produced: {fe}")
-
     flat_fe = fe.replace(" ", "")
-    check(re.search(r"\(a\+b\+c\^2\)|\(a\+c\^2\+b\)|\(b\+a\+c\^2\)|\(c\^2\+a\+b\)|"
-                    r"\(b\+c\^2\+a\)|\(c\^2\+b\+a\)", flat_fe) is not None,
-          "Union with language-only self-loop: (a+b+c^2)")
-    check("a^3" in flat_fe,
-          "Feedback: recurring state gets a^3 (base 1, +2 feedback)")
-    check(len(result["feedback_loops"]) >= 1
-          and result["feedback_loops"][0]["evidence"] == ["same_state_recurrence_after_gap"],
-          "Structural feedback detected for recurring state")
-    check("[C]" in fe and " . " in fe,
-          "Concatenation joins sequential segments")
+
+    check(flat_fe.startswith("[C](a+b+c^2).d.(e+a^3+f)"),
+          "PAPER MATCH: childhood union (a+b+c^2), d, then (e+a^3+p) with a^3 from feedback")
+    check("(a+b+c^2)" in flat_fe,
+          "self-loop stays on the bullying sub-event; 'frequently' in the shared "
+          "source sentence does not leak onto a or b")
+    a_fb = [f for f in result["feedback_loops"] if f["cluster"] == "a"]
+    check(len(a_fb) == 1 and a_fb[0]["evidence"] == ["same_cluster_recurrence_after_gap"],
+          "one structural feedback for the emotional-abuse reactivation")
+    betrayal = alphabet_map["Betrayal"]
+    b_fb = [f for f in result["feedback_loops"] if f["cluster"] == betrayal]
+    check(len(b_fb) == 1 and f"{betrayal}^3" in flat_fe,
+          "cluster-level feedback: two different betrayal states (f1, f2) are one "
+          "construct recurring, so the second carries ^3")
+    check(len(result["blocks"]) > 0 and all("node_id" in b and "entries" in b
+                                            for b in result["blocks"]),
+          "output carries the timeline blocks an instrument projection reads")
+
+    # A later episode cut into several interval slices is still ONE reactivation.
+    r_split = [
+        _mk_record("s1", "Cluster A", 0, 4, "A early"),
+        _mk_record("s1", "Cluster A", 8, 14, "A later", sub_id="s1-2"),
+        _mk_record("s2", "Cluster B", 10, 14, "B overlaps the later A"),
+    ]
+    res_split = build_expression(r_split, [], [], assign_alphabets(r_split))
+    fe_split = res_split["fire_expression"].replace(" ", "")
+    print(f"  Split-episode FE: {fe_split}")
+    check(len(res_split["feedback_loops"]) == 1 and fe_split.count("a^3") == 1,
+          "feedback adds +2 once per reactivation, not once per interval slice")
+
+    # Same cluster, no gap: persistence, not reactivation.
+    r_cont = [
+        _mk_record("s1", "Cluster A", 0, 4, "A first part"),
+        _mk_record("s3", "Cluster A", 5, 9, "A continues as another state"),
+    ]
+    res_cont = build_expression(r_cont, [], [], assign_alphabets(r_cont))
+    check(not res_cont["feedback_loops"],
+          "same cluster continuing without a gap is not feedback")
+
+    # Reactivation wording is reported, never turned into a feedback edge.
+    r_react = [
+        _mk_record("s1", "Cluster A", 2, 4, "A in childhood"),
+        _mk_record("s2", "Cluster B", 30, 30, "B, which reminded her of her father"),
+    ]
+    res_react = build_expression(r_react, [], [], assign_alphabets(r_react))
+    check(not res_react["feedback_loops"] and len(res_react["reactivation_mentions"]) == 1
+          and "b^3" not in res_react["fire_expression"],
+          "reactivation language alone is reported, adds no feedback across clusters")
 
     r_span_only = [_mk_record("s1", "Long Condition", 0, 10,
                               "state present continuously, no repetition wording")]
-    am_span = assign_alphabets(r_span_only)
-    res_span = build_expression(r_span_only, [], [], am_span, include_new_states=False)
+    res_span = build_expression(r_span_only, [], [], assign_alphabets(r_span_only))
     check(res_span["fire_expression"].replace(" ", "") == "[C]a",
           "Long span with no repetition language stays exponent 1")
 
     r_lang = [_mk_record("s1", "Repeated Condition", 0, 3,
                          "this happened repeatedly over the period")]
-    am_lang = assign_alphabets(r_lang)
-    res_lang = build_expression(r_lang, [], [], am_lang, include_new_states=False)
+    res_lang = build_expression(r_lang, [], [], assign_alphabets(r_lang))
     check("a^2" in res_lang["fire_expression"].replace(" ", ""),
           "Repetition language triggers ^2")
 
@@ -1271,8 +1430,7 @@ def selftest() -> bool:
         _mk_record("s1", "Cluster A", 0, 5, "state A spans 0-5"),
         _mk_record("s2", "Cluster B", 0, 7, "state B spans 0-7"),
     ]
-    am2 = assign_alphabets(r2)
-    res2 = build_expression(r2, [], [], am2, include_new_states=False)
+    res2 = build_expression(r2, [], [], assign_alphabets(r2))
     fe2 = res2["fire_expression"].replace(" ", "")
     print(f"  Union-test FE: {fe2}")
     check("(a+b)" in fe2 or "(b+a)" in fe2,
@@ -1280,24 +1438,29 @@ def selftest() -> bool:
     check(fe2.count(".") >= 1 and fe2.rstrip().endswith("b"),
           "Remainder of longer span continues afterward")
 
-    new_rec = _mk_record("st-new", "Novel State", 5, 5, "something new")
-    new_rec["is_new_state"] = True
-    new_rec["mapped_state_status"] = "provisional"
-    resolved, new_states, others = [], [new_rec], []
-    check(len(new_states) == 1, "Provisional record correctly bucketed")
-    res_excl = build_expression(resolved, new_states, others, {"Novel State": "z"},
+    r_same = [
+        _mk_record("s1", "Cluster A", 0, 5, "first state of cluster A"),
+        _mk_record("s2", "Cluster A", 0, 5, "second state of cluster A"),
+    ]
+    res_same = build_expression(r_same, [], [], assign_alphabets(r_same))
+    check(res_same["fire_expression"].replace(" ", "") == "[C]a",
+          "two states of one cluster in the same period are one symbol, not (a+a)")
+
+    new_rec = _mk_record("st-new", "Novel State", 5, 5, "something new", is_new_state=True)
+    res_incl = build_expression([], [new_rec], [], {"Novel State": "z"})
+    res_excl = build_expression([], [new_rec], [], {"Novel State": "z"},
                                 include_new_states=False)
-    res_incl = build_expression(resolved, new_states, others, {"Novel State": "z"},
-                                include_new_states=True)
-    check("z" not in res_excl["fire_expression"] and "z" in res_incl["fire_expression"],
-          "--include-new-states controls whether provisional states enter the FE")
+    check("z" in res_incl["fire_expression"] and "z" not in res_excl["fire_expression"],
+          "provisional states enter the FE by default; excluded only on request")
+    check(any(f["check"] == "provisional_states_in_expression"
+              for f in res_incl["human_review_flags"]),
+          "a provisional state in the FE is flagged for psychotherapist review")
 
     r3 = [
         _mk_record("s1", "Known Age", 5, 5, "event at age 5"),
         _mk_record("s2", "Unknown Age", None, None, "event with no age given"),
     ]
-    am3 = assign_alphabets(r3)
-    res3 = build_expression(r3, [], [], am3, include_new_states=False)
+    res3 = build_expression(r3, [], [], assign_alphabets(r3))
     check("[N]" in res3["fire_expression"], "No-age state placed in dedicated tier")
 
     print("\nSELF-TEST:", "ALL PASS" if ok else "FAILURES PRESENT")
@@ -1313,12 +1476,18 @@ def main() -> None:
     resolved/new-state/other records, assign the cluster alphabet, build
     the FiRE Expression via `build_expression`, print a summary, and
     write the full result to --output."""
-    parser = argparse.ArgumentParser(description="FiRE Worker 3 — FiRE Expression Builder")
-    parser.add_argument("input", nargs="?", help="Worker 2 output JSON")
+    parser = argparse.ArgumentParser(
+        description="FiRE Worker 3 (all instruments): build the trajectory and its "
+                    "expression from Worker 2's mapped events (no model call)")
+    parser.add_argument("input", nargs="?", help="Worker 2 output (final_mapped_events.json)")
     parser.add_argument("--output", "-o", default="worker3_output.json",
                         help="Output file path (default: worker3_output.json)")
+    parser.add_argument("--exclude-provisional-states", action="store_true",
+                        help="Leave states Worker 2 created as provisional out of the FE. "
+                             "Default: included, since the paper uses a provisional state "
+                             "immediately in the current individual's trajectory.")
     parser.add_argument("--include-new-states", action="store_true",
-                        help="Include provisional states in the FE string")
+                        help="Deprecated no-op: provisional states are included by default.")
     parser.add_argument("--selftest", action="store_true",
                         help="Run regression checks and exit")
     parser.add_argument("--verbose", "-v", action="store_true", help="DEBUG logging")
@@ -1348,21 +1517,22 @@ def main() -> None:
     patient_id = data.get("patient_id") or Path(args.input).stem.replace("_final", "")
     logging.info("Patient: %s", patient_id)
 
+    include_new = not args.exclude_provisional_states
     resolved, new_states, others = parse_worker2_output(data)
     logging.info("Records parsed: %d RESOLVED | %d NEW_STATE (provisional) | %d other",
                  len(resolved), len(new_states), len(others))
 
-    if not resolved and not (args.include_new_states and new_states):
-        logging.warning("No RESOLVED events found. Try --include-new-states.")
+    if not resolved and not (include_new and new_states):
+        logging.warning("No RESOLVED events found.")
 
-    all_for_alpha = resolved + (new_states if args.include_new_states else [])
+    all_for_alpha = resolved + (new_states if include_new else [])
     alphabet_map = assign_alphabets(all_for_alpha)
     logging.info("Alphabet: %d unique clusters", len(alphabet_map))
 
     result = build_expression(
         resolved_records=resolved, new_state_records=new_states,
         other_records=others, alphabet_map=alphabet_map,
-        include_new_states=args.include_new_states)
+        include_new_states=include_new)
 
     sep = "\u2550" * 60
     print(f"\n{sep}\n  FiRE Expression — {patient_id}\n{sep}\n")
@@ -1393,20 +1563,22 @@ def main() -> None:
         print()
 
     if result["feedback_loops"]:
-        print("  Feedback loops (encoded as +2 on the initiating node's exponent):")
+        print("  Feedback loops (encoded as +2 on the reactivated (later) node's exponent):")
         for fb in result["feedback_loops"]:
             print(f"    {fb['trigger_cluster']}@{fb['later_interval']} \u2192 "
                   f"{fb['cluster']}@{fb['earlier_interval']}  ({', '.join(fb['evidence'])})")
         print()
 
     if result["human_review_flags"]:
-        print("  \u26a0  Human review flags:")
+        print("  ! Human review flags:")
         for flag in result["human_review_flags"]:
             print(f"    - {flag['check']}")
         print()
 
+    prov_note = "excluded" if not include_new else "included, flagged for review"
+    print(f"  Provisional states created by Worker 2 ({prov_note}) : "
+          f"{len(result['new_states_created'])}")
     print("  Excluded from FE:")
-    print(f"    NEW_STATE (provisional, pending clinician review) : {len(result['new_states_created'])}")
     print(f"    UNMATCHED                                          : {len(result['unmatched_events'])}")
     print(f"    NOT_ADVERSE (neutral)                              : {len(result['not_adverse_events'])}")
     print(f"\n{sep}\n")
@@ -1414,7 +1586,7 @@ def main() -> None:
     output = {
         "patient_id": patient_id, "input_file": str(args.input),
         "worker2_stats": data.get("worker2_stats", {}),
-        "include_new_states": args.include_new_states, **result,
+        "include_new_states": include_new, **result,
     }
     try:
         with open(args.output, "w", encoding="utf-8") as f:

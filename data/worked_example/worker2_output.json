@@ -1,0 +1,278 @@
+{
+  "_source": "The main paper's worked example (Section 'FiRE Model on the Worked Example', Table I), written in the shape fire_worker2.py emits: one event per note line, every sub-event carrying that line's shared source_sentence plus its own supporting_quote, ages, state code and cluster. Hand-constructed from the paper, not produced by an LLM run.",
+  "patient_id": "worked_example",
+  "pipeline_stage": "worker2_state_space_mapping",
+  "events": [
+    {
+      "unit_id": "worked_example_L1",
+      "line_number": 1,
+      "life_stage": "Childhood",
+      "source_sentence": "Age 0 to 8: father emotionally abusive and controlling; client felt unloved and did not belong; bullied frequently at school for a speech difficulty and wearing glasses.",
+      "status": "COMPOUND",
+      "sub_events": [
+        {
+          "sub_id": "q-a",
+          "event": "Father was emotionally abusive and controlling",
+          "experience_type": "event",
+          "status": "MAPPED",
+          "onset_age": 0,
+          "end_age": 8,
+          "is_ongoing": false,
+          "supporting_quote": "father emotionally abusive and controlling",
+          "quote_grounded": true,
+          "state_code": "q-a",
+          "cluster_name": "Emotional Abuse",
+          "similarity": 0.9,
+          "mapped_state_status": "permanent"
+        },
+        {
+          "sub_id": "q-b",
+          "event": "Client felt unloved and did not belong",
+          "experience_type": "symptom",
+          "status": "MAPPED",
+          "onset_age": 0,
+          "end_age": 8,
+          "is_ongoing": false,
+          "supporting_quote": "client felt unloved and did not belong",
+          "quote_grounded": true,
+          "state_code": "q-b",
+          "cluster_name": "Felt Unloved",
+          "similarity": 0.9,
+          "mapped_state_status": "permanent"
+        },
+        {
+          "sub_id": "q-c",
+          "event": "Client was bullied at school by peers",
+          "experience_type": "event",
+          "status": "MAPPED",
+          "onset_age": 0,
+          "end_age": 8,
+          "is_ongoing": false,
+          "supporting_quote": "bullied frequently at school",
+          "quote_grounded": true,
+          "state_code": "q-c",
+          "cluster_name": "Peer Bullying",
+          "similarity": 0.9,
+          "mapped_state_status": "permanent"
+        }
+      ],
+      "sub_event_count": 3,
+      "state_codes": [
+        "q-a",
+        "q-b",
+        "q-c"
+      ],
+      "cluster_symbols": [
+        "Emotional Abuse",
+        "Felt Unloved",
+        "Peer Bullying"
+      ]
+    },
+    {
+      "unit_id": "worked_example_L2",
+      "line_number": 2,
+      "life_stage": "Childhood",
+      "source_sentence": "Age 11: mother died of cancer.",
+      "status": "COMPOUND",
+      "sub_events": [
+        {
+          "sub_id": "q-d",
+          "event": "Mother died of cancer",
+          "experience_type": "event",
+          "status": "MAPPED",
+          "onset_age": 11,
+          "end_age": 11,
+          "is_ongoing": false,
+          "supporting_quote": "mother died of cancer",
+          "quote_grounded": true,
+          "state_code": "q-d",
+          "cluster_name": "Caregiver Death",
+          "similarity": 0.9,
+          "mapped_state_status": "permanent"
+        }
+      ],
+      "sub_event_count": 1,
+      "state_codes": [
+        "q-d"
+      ],
+      "cluster_symbols": [
+        "Caregiver Death"
+      ]
+    },
+    {
+      "unit_id": "worked_example_L3",
+      "line_number": 3,
+      "life_stage": "Teenage",
+      "source_sentence": "Age 12 to 16: father beat and pinched her, with continuing emotional abuse; depressed mood and overeating.",
+      "status": "COMPOUND",
+      "sub_events": [
+        {
+          "sub_id": "q-e",
+          "event": "Father beat and pinched client",
+          "experience_type": "event",
+          "status": "MAPPED",
+          "onset_age": 12,
+          "end_age": 16,
+          "is_ongoing": false,
+          "supporting_quote": "father beat and pinched her",
+          "quote_grounded": true,
+          "state_code": "q-e",
+          "cluster_name": "Physical Abuse",
+          "similarity": 0.9,
+          "mapped_state_status": "permanent"
+        },
+        {
+          "sub_id": "q-a-2",
+          "event": "Father's emotional abuse continued",
+          "experience_type": "event",
+          "status": "MAPPED",
+          "onset_age": 12,
+          "end_age": 16,
+          "is_ongoing": false,
+          "supporting_quote": "continuing emotional abuse",
+          "quote_grounded": true,
+          "state_code": "q-a",
+          "cluster_name": "Emotional Abuse",
+          "similarity": 0.9,
+          "mapped_state_status": "permanent"
+        },
+        {
+          "sub_id": "q-p",
+          "event": "Client had depressed mood and overeating",
+          "experience_type": "symptom",
+          "status": "MAPPED",
+          "onset_age": 12,
+          "end_age": 16,
+          "is_ongoing": false,
+          "supporting_quote": "depressed mood and overeating",
+          "quote_grounded": true,
+          "state_code": "q-p",
+          "cluster_name": "Depressive Symptoms",
+          "similarity": 0.9,
+          "mapped_state_status": "permanent"
+        }
+      ],
+      "sub_event_count": 3,
+      "state_codes": [
+        "q-e",
+        "q-a",
+        "q-p"
+      ],
+      "cluster_symbols": [
+        "Physical Abuse",
+        "Emotional Abuse",
+        "Depressive Symptoms"
+      ]
+    },
+    {
+      "unit_id": "worked_example_L4",
+      "line_number": 4,
+      "life_stage": "Adult",
+      "source_sentence": "Age 22 to 24: a trusted friend took the client's money and left, her first major betrayal.",
+      "status": "COMPOUND",
+      "sub_events": [
+        {
+          "sub_id": "q-f1",
+          "event": "A trusted friend took client's money and left",
+          "experience_type": "event",
+          "status": "MAPPED",
+          "onset_age": 22,
+          "end_age": 24,
+          "is_ongoing": false,
+          "supporting_quote": "a trusted friend took the client's money and left",
+          "quote_grounded": true,
+          "state_code": "q-f1",
+          "cluster_name": "Betrayal",
+          "similarity": 0.9,
+          "mapped_state_status": "permanent"
+        }
+      ],
+      "sub_event_count": 1,
+      "state_codes": [
+        "q-f1"
+      ],
+      "cluster_symbols": [
+        "Betrayal"
+      ]
+    },
+    {
+      "unit_id": "worked_example_L5",
+      "line_number": 5,
+      "life_stage": "Adult",
+      "source_sentence": "Age 35 to 37: the client discovered her husband's affair.",
+      "status": "COMPOUND",
+      "sub_events": [
+        {
+          "sub_id": "q-f2",
+          "event": "Client discovered husband's affair",
+          "experience_type": "event",
+          "status": "MAPPED",
+          "onset_age": 35,
+          "end_age": 37,
+          "is_ongoing": false,
+          "supporting_quote": "the client discovered her husband's affair",
+          "quote_grounded": true,
+          "state_code": "q-f2",
+          "cluster_name": "Betrayal",
+          "similarity": 0.9,
+          "mapped_state_status": "permanent"
+        }
+      ],
+      "sub_event_count": 1,
+      "state_codes": [
+        "q-f2"
+      ],
+      "cluster_symbols": [
+        "Betrayal"
+      ]
+    },
+    {
+      "unit_id": "worked_example_L6",
+      "line_number": 6,
+      "life_stage": "Adult",
+      "source_sentence": "Age 40 to 42 (current): divorced and living with family, with persistent low mood and chronic insomnia.",
+      "status": "COMPOUND",
+      "sub_events": [
+        {
+          "sub_id": "q-g",
+          "event": "Client has persistent low mood",
+          "experience_type": "symptom",
+          "status": "MAPPED",
+          "onset_age": 40,
+          "end_age": 42,
+          "is_ongoing": true,
+          "supporting_quote": "persistent low mood",
+          "quote_grounded": true,
+          "state_code": "q-g",
+          "cluster_name": "Depression",
+          "similarity": 0.9,
+          "mapped_state_status": "permanent"
+        },
+        {
+          "sub_id": "q-h",
+          "event": "Client has chronic insomnia",
+          "experience_type": "symptom",
+          "status": "MAPPED",
+          "onset_age": 40,
+          "end_age": 42,
+          "is_ongoing": true,
+          "supporting_quote": "chronic insomnia",
+          "quote_grounded": true,
+          "state_code": "q-h",
+          "cluster_name": "Sleep Disturbance",
+          "similarity": 0.9,
+          "mapped_state_status": "permanent"
+        }
+      ],
+      "sub_event_count": 2,
+      "state_codes": [
+        "q-g",
+        "q-h"
+      ],
+      "cluster_symbols": [
+        "Depression",
+        "Sleep Disturbance"
+      ]
+    }
+  ]
+}

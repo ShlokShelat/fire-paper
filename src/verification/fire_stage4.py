@@ -1,57 +1,38 @@
 """
-FiRE Pipeline — Worker 1, Stage 4: Explicit Evidence Verifier
+FiRE Pipeline — Worker 1, Stage 4: audit of confirmed events
 ================================================================
-Paper concept: a supplementary pass beyond Verification (stage iii) —
-it re-checks events Stage 3 already marked CONFIRMED, using different
-mechanics and covering 3 of the paper's 4 axes. It is NOT the paper's
-stage (iii) itself and is not described in the manuscript; see the full
-discussion below before treating it as such.
+Paper concept: part of stage (iii). Stage 4 rechecks every event Stages 2-3
+marked CONFIRMED, for entities, grounding and timing (Supplementary
+Material, Section S1). It can lower an event from CONFIRMED to TENTATIVE,
+which keeps the event but flags it for review; it never discards an event
+and never raises one. No language-model call is made.
 
-Pipeline position: Worker 1's optional fourth stage, run after Stage 3
-(fire_stage2_3_single_model.py) and before Worker 2 (fire_worker2.py).
+The three rechecks:
+  1. Entities  — every person in persons_involved must appear in the source
+     sentence, its section heading or nearby lines of the same section
+     (kinship terms such as "mil" count). Severity HIGH.
+  2. Grounding — the event text against its source sentence (section
+     heading removed): pass if cosine >= 0.60 with all-MiniLM-L6-v2
+     (0.55 for patterns; symptoms and beliefs are not tested). Without
+     embeddings, a lexical containment score is used with the same
+     thresholds. Severity MEDIUM. This is the "grounding recheck" that the
+     cited-span ablation removes (src/ablation/fire_ablation.py).
+  3. Timing    — the life stage must not contradict the age context or a
+     non-adjacent life-stage cue in the source. Severity LOW.
+An event's confidence falls by 0.20, 0.10 or 0.05 for a failed check of
+high, medium or low severity (Supplementary Material, Section S8; at most
+0.30 in total, never below 0.40); a HIGH or MEDIUM failure lowers the
+status to TENTATIVE, a LOW failure only flags.
 
-IMPORTANT NOTE ON PAPER ALIGNMENT (read before using this module)
---------------------------------------------------------------
-The paper describes exactly four FiRE stages: (i) preprocessing into
-events, (ii) mapping to the shared state space, (iii) a single
-verification step checking four axes (construct, actor/role, age
-window, groundedness), and (iv) trajectory assembly + instrument
-projection/scoring. It does not describe a second, separate
-verification pass on top of stage (iii).
+Pipeline position: after Stages 2-3 (fire_stage2_3_single_model.py), before
+Stage 5 (fire_stage5.py).
+Input: validated_events.json, optionally with stage1_output.json for the
+nearby-line context. Output: the same events with stage4_flags,
+stage4_passed and any lowered status, written to a new file.
 
-This file — Worker 1 "Stage 4" — is exactly that: a second pass run
-AFTER Stage 3's four-axis verifier, on events Stage 3 already marked
-CONFIRMED, using different mechanics (containment/cosine similarity,
-a fixed keyword list, a different life-stage/age boundary definition)
-and covering only 3 of the paper's 4 axes (no actor/role check here
-at all). It is not mentioned anywhere in the manuscript.
-
-Before this goes into a submission, one of the following needs to
-happen, and it is a research decision, not something fixed by
-patching code:
-  (a) Document this explicitly in the paper as part of what
-      "verifying each mapping against the source text" means in
-      practice (i.e. state (iii) is implemented as two passes), and
-      make sure any numbers reported (100% accuracy claim, groundedness
-      percentages) reflect output AFTER this stage runs, not before; or
-  (b) Fold this stage's three checks into Stage 3 as refinements of the
-      construct / age-window / groundedness axes, so there is one
-      verification stage with one set of thresholds, matching the
-      paper's description exactly; or
-  (c) Keep it separate but rename/frame it honestly as an additional
-      post-hoc audit layer beyond what the paper claims, not as part
-      of the four-axis verification the paper describes.
-This file does not decide that for you — it fixes bugs and adds
-consistency features under whichever framing you pick.
-
-Main input: a Worker 1 output file (events + patient_id), optionally
-paired with Stage 1's tagged-sentence list for extra context sentences.
-Main output: the same events, in place, with `stage4_flags`,
-`stage4_passed`, and (for flagged events) a downgraded confidence/status,
-written to a new JSON file so the pre-Stage-4 file is left untouched.
-Key assumption: this pass only ever downgrades or flags events already
-marked CONFIRMED by Stage 3 — it never marks something CONFIRMED that
-Stage 3 did not.
+Usage:
+  python3 fire_stage4.py validated_events.json --stage1 stage1_output.json -o validated_events_s4.json
+  python3 fire_stage4.py --selftest
 """
 
 import argparse
@@ -389,15 +370,13 @@ def _extract_age_from_context(age_context: Optional[str]) -> Optional[tuple]:
 
 
 def _life_stage_from_age(age_min: int, age_max: int) -> Optional[str]:
-    """
-    NOTE: this boundary definition (mid-life starts at 40) does not match
-    Worker 1 Stage 3's LIFE_STAGE_AGE_RANGES (mid-life starts at 35, with
-    adult/mid-life overlapping 35-59). The two stages will disagree at the
-    margins (e.g. age 37) about what counts as "adult" vs "mid-life". This
-    is a cross-stage consistency issue worth resolving deliberately (pick
-    one boundary and share it), not something this file can silently
-    reconcile on its own — flagged here rather than "fixed" unilaterally,
-    since either boundary could be the intended one.
+    """Life stage implied by the midpoint of an age range.
+
+    Note: here mid-life starts at 40, while Stage 3's LIFE_STAGE_AGE_RANGES
+    lets adult and mid-life overlap from 35 to 59, so the two stages can
+    disagree near those ages. A disagreement between adjacent stages is
+    never flagged (_ADJACENT_STAGE_PAIRS), and a timing failure has LOW
+    severity, which flags an event without lowering its status.
     """
     mid = (age_min + age_max) / 2
     if mid <= 12: return "childhood"
@@ -616,7 +595,8 @@ def atomic_write_json(path: str, obj) -> None:
 
 
 def selftest() -> bool:
-    """Offline regression guard."""
+    """Offline regression guard: section-heading stripping, the logging
+    call, and the fail-open behaviour of a broken encoder."""
     ok = True
 
     def check(cond, name):
@@ -670,14 +650,17 @@ def main():
     context), run `stage4_verify`, print a before/after status summary,
     and write the annotated events to a new JSON file."""
     parser = argparse.ArgumentParser(
-        description="FiRE Worker 1 - Stage 4: Explicit Evidence Verifier"
+        description="FiRE Worker 1, Stage 4: recheck CONFIRMED events for entities, "
+                    "grounding and timing (no model call)"
     )
-    parser.add_argument("input", nargs="?")
-    parser.add_argument("--output", "-o", default=None)
-    parser.add_argument("--stage1", default=None)
+    parser.add_argument("input", nargs="?", help="Stages 2-3 output (validated_events.json)")
+    parser.add_argument("--output", "-o", default=None,
+                        help="Output path (default: <input>_s4.json)")
+    parser.add_argument("--stage1", default=None,
+                        help="stage1_output.json, for nearby-line context")
     parser.add_argument("--selftest", action="store_true",
                         help="Run offline regression checks and exit")
-    parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Debug logging")
 
     args = parser.parse_args()
 
@@ -741,9 +724,8 @@ def main():
                              if e.get("stage4_flags") and e.get("status") == "TENTATIVE"),
         "n_flagged_low": sum(1 for e in events
                              if e.get("stage4_flags") and e.get("status") == "CONFIRMED"),
-        "note": ("This is a second verification pass beyond the paper's stage "
-                 "(iii) four-axis check; see module docstring before citing "
-                 "post-Stage-4 numbers as if they came from a single verify step."),
+        "note": ("Stage 4 audit of CONFIRMED events (entities, grounding, "
+                 "timing); see Supplementary Material, Section S1."),
     }
 
     atomic_write_json(output_path, data)

@@ -1,8 +1,12 @@
-[Indian cultural context glossary]
-Source of truth: technical_appendix, Section "Extraction and Verification
-Prompts", subsection "Indian cultural context glossary". Reused identically
-at Stage 4's entity-anchoring check and throughout Worker 2's state-space
-matching. See the appendix for full detail on where and how this is applied.
+[Indian clinical glossary of kinship terms and idioms]
+Supplementary Material, Section S4. The table below has the same entries as
+INDIAN_CULTURAL_GLOSSARY in src/extraction/fire_stage2_3_single_model.py,
+which Stage 3 uses to attach cultural notes to events; the extraction
+prompt's system message carries a shorter version of it, and Stages 3-4
+resolve kinship abbreviations (mil, fil, sil, ...) through
+PERSON_ANCHOR_EXPANSIONS. The structure-guided and knowledge-matched
+baselines insert the table, from the "term" line on, into their prompts
+verbatim; keep it unchanged.
 
 term                        meaning
 ----                        -------

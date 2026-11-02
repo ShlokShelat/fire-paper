@@ -123,7 +123,7 @@ def test_worked_example_chain():
 
     assert score["canonical_ace_score"] == 4
     assert score["items_present"] == [1, 2, 4, 11]
-    assert score["high_risk_threshold"] == 4 and score["crosses_high_risk_threshold"] is True
+    assert not any("risk" in k for k in score), "the score card gives no risk level"
     assert score["exponent_weights_reference"]["a"] == 4      # a + a^3
     assert score["exponent_weights_reference"]["c"] == 2      # c^2
     assert not score["unmapped_symbols"] and not score["mapping_conflicts"]

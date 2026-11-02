@@ -27,10 +27,12 @@ For each event that Worker 1 kept (CONFIRMED, TENTATIVE or REVIEW_REQUIRED):
      (--export-review / --apply-review).
 
   5. After all events are processed, a same-cluster deduplication sweep
-     merges two states of one cluster whose embeddings have cosine >= 0.82
-     (--dedup-threshold), keeping the permanent or lower-numbered state, and
-     rewrites the event codes; --no-dedup-sweep switches it off. The paper's
-     runs used the default (sweep on).
+     merges two approved states of one cluster whose embeddings have
+     cosine >= 0.82 (--dedup-threshold), keeping the lower-numbered state,
+     and rewrites the event codes; --no-dedup-sweep switches it off. The
+     paper's runs used the default (sweep on). Provisional states that a
+     psychotherapist has not yet approved are never part of the sweep, so
+     no individual's new state is merged with another state.
 
 The state space is one JSON document of domains -> clusters -> states
 (src/state_space/fire_state_space_tree.json documents the schema). The space
@@ -748,6 +750,20 @@ def save_state_space_dict(filepath: str, db: dict, exclude_codes: set = None) ->
 # 5.  STATE SPACE TREE — GLOBAL VECTOR ENGINE
 # ─────────────────────────────────────────────────────────────
 
+def _sweep_candidates(state_index: dict) -> list:
+    """States the post-run deduplication sweep may merge: approved states
+    only. A provisional state stays outside the sweep until a
+    psychotherapist approves it, so it is never merged with another
+    individual's state (Supplementary Material, Section S3)."""
+    return [
+        {"code": code, "vector": info["vector"],
+         "cluster_key": info["cluster_key"],
+         "name": info["data"].get("name", "")}
+        for code, info in state_index.items()
+        if info["data"].get("state_status", "permanent") != "provisional"
+    ]
+
+
 class StateSpaceTree:
     """Flat global semantic search over ALL states (no cluster gating)."""
 
@@ -869,15 +885,10 @@ class StateSpaceTree:
         save_state_space_dict(self.filepath, self.db, exclude_codes=exclude_codes)
 
     async def dedup_sweep(self, threshold: float) -> dict:
-        """Deterministic post-run cleanup: merge same-cluster near-duplicates."""
+        """Deterministic post-run cleanup: merge same-cluster near-duplicates
+        among approved states only (see _sweep_candidates)."""
         async with self.index_lock:
-            entries = [
-                {"code": code, "vector": info["vector"],
-                 "cluster_key": info["cluster_key"],
-                 "name": info["data"].get("name", ""),
-                 "status": info["data"].get("state_status", "permanent")}
-                for code, info in self.state_index.items()
-            ]
+            entries = _sweep_candidates(self.state_index)
 
         def _codenum(c: str) -> int:
             m = re.search(r"\d+", c)
@@ -894,14 +905,7 @@ class StateSpaceTree:
                 if score < threshold:
                     continue
 
-                a_perm = a["status"] != "provisional"
-                b_perm = b["status"] != "provisional"
-                if a_perm and not b_perm:
-                    lo, hi = a["code"], b["code"]
-                elif b_perm and not a_perm:
-                    lo, hi = b["code"], a["code"]
-                else:
-                    lo, hi = sorted([a["code"], b["code"]], key=_codenum)
+                lo, hi = sorted([a["code"], b["code"]], key=_codenum)
 
                 winner = lo
                 while winner in remap:
@@ -915,20 +919,6 @@ class StateSpaceTree:
             return {}
 
         losers = set(remap.keys())
-
-        by_code = {s.get("code"): s
-                  for dom in self.db.get("domains", {}).values()
-                  for clu in dom.get("clusters", {}).values()
-                  for s in clu.get("states", [])}
-        for loser_code, winner_code in remap.items():
-            loser_state  = by_code.get(loser_code)
-            winner_state = by_code.get(winner_code)
-            if not loser_state or not winner_state:
-                continue
-            if winner_state.get("state_status") == "provisional":
-                owners = set(winner_state.get("provisional_for_patients") or [])
-                owners |= set(loser_state.get("provisional_for_patients") or [])
-                winner_state["provisional_for_patients"] = sorted(owners)
 
         for dom in self.db.get("domains", {}).values():
             for clu in dom.get("clusters", {}).values():
@@ -1267,7 +1257,7 @@ async def process_event(
 
     if is_partial and source_sentence and source_sentence.strip() != raw_event.strip():
         partial_note = (
-            "\n⚠️ PARTIAL EXTRACTION — only one model extracted this event "
+            "\nPARTIAL EXTRACTION — only one model extracted this event "
             "(the other returned null). The pipeline extraction below may be INCOMPLETE.\n"
             "Decompose from the ORIGINAL CLINICAL TEXT."
         )
@@ -1706,6 +1696,12 @@ def selftest() -> bool:
         print(f"  [{'PASS' if cond else 'FAIL'}] {name}")
         ok = ok and bool(cond)
 
+    idx = {"dyn-1": {"vector": None, "cluster_key": "k", "data": {"name": "a"}},
+           "dyn-2": {"vector": None, "cluster_key": "k",
+                     "data": {"name": "b", "state_status": "provisional"}}}
+    check([e["code"] for e in _sweep_candidates(idx)] == ["dyn-1"],
+          "dedup sweep: unapproved provisional states are never merged")
+
     check(canonical_cluster_name("Anxiety Symptoms") == canonical_cluster_name("Anxiety Symptom"),
           "canonical_cluster_name: plural/singular variants collapse")
     check(cluster_key_from_name("Anxiety Symptoms") != cluster_key_from_name("Anger Symptoms"),
@@ -1749,10 +1745,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="FiRE Worker 2 — maps verified events to the shared state space")
     parser.add_argument("input", nargs="?", help="Stage 5 output (validated_events_s5.json)")
-    parser.add_argument("--state-space", default="fire_state_space_tree.json",
+    parser.add_argument("--state-space", default="state_space.json",
                         help="State-space JSON; read, and updated in place with new "
-                             "provisional states (default: fire_state_space_tree.json in "
-                             "the current folder; pass it explicitly)")
+                             "provisional states (default: state_space.json in the "
+                             "current folder; pass it explicitly). Never point this at "
+                             "fire_state_space_tree.json, which documents the schema.")
     parser.add_argument("--fresh-start", action="store_true",
                         help="DELETE the --state-space file and start from an empty space")
     parser.add_argument("--stage1", default=None,

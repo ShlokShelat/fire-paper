@@ -1,5 +1,5 @@
 {
- "_note": "Published results of the paper, transcribed from the LaTeX source: main paper Table II (accuracy and grounding) and Table III (error counts by mode), Supplementary Table S-stats (Wilson 95% intervals and McNemar lower bounds against FiRE) and the Supplementary ablation table (Section S10). 560 item decisions per system and condition (40 individuals x 14 items). These are aggregate counts, not per-item judgements; scripts/make_tables.py --self-test checks that every derived number here follows from the error counts.",
+ "_note": "Published results of the paper, transcribed from the LaTeX source: main paper Table II (accuracy and grounding) and Table III (error counts by mode), Supplementary Table SV (Wilson 95% intervals and McNemar lower bounds against FiRE) and the Supplementary ablation table (Section S10). 560 item decisions per system and condition (40 individuals x 14 items). These are aggregate counts, not per-item judgements; scripts/make_tables.py --self-test checks that every derived number here follows from the error counts.",
  "n_individuals": 40,
  "n_items": 14,
  "conditions": {

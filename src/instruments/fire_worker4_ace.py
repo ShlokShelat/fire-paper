@@ -10,13 +10,9 @@ never change the count.
 
 Flags raised here, none of which changes the score (Supplementary
 Material, Section S1): unconfirmed duration on items 10 and 13 (the item
-still counts), a score at or above the high-risk threshold of 4, and
-findings Worker 3 (ACE) left out for missing age evidence.
-
-The score card also carries two descriptive extras that the paper does not
-use or evaluate: risk bands (canonical_risk; HIGH starts at 4) and
-interaction notes for some item pairs (build_flags). Neither changes the
-score or any item decision.
+still counts) and findings Worker 3 (ACE) left out for missing age
+evidence. The score card reports the score and the items behind it, and
+nothing else: it gives no risk level and no clinical interpretation.
 
 The instrument is the 14-item ACE questionnaire validated in India
 (Trivedi et al., 2025), which extends nine of the ten original ACE items
@@ -84,15 +80,6 @@ DURATION_ITEMS      = {10, 13}
 MIN_DURATION_SPAN     = 1
 MIN_DURATION_EXPONENT = 2
 
-# High-risk flag at a score of 4 or more (main paper; Supplementary Material,
-# Section S8, "Model-call parameters and fixed thresholds").
-HIGH_RISK_THRESHOLD = 4
-HIGH_RISK_NOTE = (
-    "Four or more ACEs significantly increase risks across mental health, "
-    "substance use, and violence outcomes (Hughes et al. 2017); the paper "
-    "treats ACE >= 4 as the clinical escalation line, so a single item wrongly "
-    "added or dropped can move this individual across it."
-)
 
 # ─────────────────────────────────────────────────────────────
 # CLUSTER -> ACE ITEM BINDING
@@ -286,10 +273,6 @@ def score_from_expression(w3: dict) -> dict:
 
     return {
         "canonical_ace_score": canonical,
-        "canonical_risk": canonical_risk(canonical),
-        "crosses_high_risk_threshold": canonical >= HIGH_RISK_THRESHOLD,
-        "high_risk_threshold": HIGH_RISK_THRESHOLD,
-        "high_risk_threshold_note": HIGH_RISK_NOTE if canonical >= HIGH_RISK_THRESHOLD else "",
         "items_present": sorted(n for n, r in scorecard.items() if r["present"]),
         "category_breakdown": category_breakdown,
         "ace_scorecard": {str(n): r for n, r in scorecard.items()},
@@ -306,9 +289,7 @@ def score_from_expression(w3: dict) -> dict:
 def _pending_age_review(w3: dict, canonical: int, scorecard: dict) -> dict:
     """Surface ACE findings Worker 3 ACE left out of the score because they
     have no age evidence (pending psychotherapist age confirmation), so a
-    withheld item is visible on the score card rather than silently absent.
-    `could_cross_high_risk_threshold` marks the case where confirming those
-    ages could move the individual across the escalation line."""
+    withheld item is visible on the score card rather than silently absent."""
     pending = w3.get("age_unverified") or []
     withheld = sorted({int(x["ace_item"]) for x in pending
                        if x.get("ace_item") is not None
@@ -316,8 +297,6 @@ def _pending_age_review(w3: dict, canonical: int, scorecard: dict) -> dict:
     return {
         "pending_age_review": pending,
         "pending_age_review_items": withheld,
-        "could_cross_high_risk_threshold": (canonical < HIGH_RISK_THRESHOLD
-                                            and canonical + len(withheld) >= HIGH_RISK_THRESHOLD),
     }
 
 
@@ -329,54 +308,17 @@ def _category_of(n: int) -> str:
     return "other"
 
 
-def canonical_risk(ace_count: int) -> str:
-    """ACE-count risk bands; HIGH starts at the paper's escalation line (>= 4)."""
-    if ace_count == 0:  return "MINIMAL"
-    if ace_count <= 1:  return "LOW"
-    if ace_count < HIGH_RISK_THRESHOLD:  return "MODERATE"
-    if ace_count <= 5:  return "HIGH"
-    return "VERY HIGH"
-
-
-# ─────────────────────────────────────────────────────────────
-# CLINICAL REPORTING
-# ─────────────────────────────────────────────────────────────
-
-def build_flags(scorecard: dict, feedback_loops: list) -> dict:
-    """Interaction flags for known high-risk ACE co-occurrences, plus
-    feedback loop annotations (reference only, not added to ACE total)."""
-    def present(n):
-        return scorecard[str(n)]["present"]
-
-    interaction = []
-    if present(1) and present(4):
-        interaction.append({"rule": "ACE-1 + ACE-4",
-            "implication": "Emotional abuse + emotional neglect — elevated complex-PTSD risk"})
-    if present(3) and present(7):
-        interaction.append({"rule": "ACE-3 + ACE-7",
-            "implication": "Sexual abuse + witnessed domestic violence — elevated dissociation risk"})
-    if present(7) and present(14):
-        interaction.append({"rule": "ACE-7 + ACE-14",
-            "implication": "Pervasive household violence — chronic hypervigilance expected"})
-    if present(1) and present(7) and present(14):
-        interaction.append({"rule": "ACE-1 + 7 + 14",
-            "implication": "Triple household adversity — very high complex-trauma burden"})
-
-    feedback_f = []
-    for fb in (feedback_loops or []):
-        feedback_f.append({
-            "cluster": fb.get("cluster"),
-            "cluster_name": fb.get("cluster_name", ""),
-            "state_code": fb.get("state_code"),
-            "earlier_interval": fb.get("earlier_interval"),
-            "later_interval": fb.get("later_interval"),
-            "evidence": fb.get("evidence"),
-            "clinical_significance":
-                "Childhood trauma reactivated at a later age — reflected as added "
-                "weight on the recurring node (exponent), not as an extra point in "
-                "the ACE total (ACE is a childhood-only count).",
-        })
-    return {"interaction_flags": interaction, "feedback_loop_flags": feedback_f}
+def feedback_notes(feedback_loops: list) -> list:
+    """Feedback edges from Worker 3, listed for reference. They add weight
+    to the recurring state's exponent and never change the ACE count."""
+    return [{
+        "cluster": fb.get("cluster"),
+        "cluster_name": fb.get("cluster_name", ""),
+        "state_code": fb.get("state_code"),
+        "earlier_interval": fb.get("earlier_interval"),
+        "later_interval": fb.get("later_interval"),
+        "evidence": fb.get("evidence"),
+    } for fb in (feedback_loops or [])]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -386,7 +328,7 @@ def build_flags(scorecard: dict, feedback_loops: list) -> dict:
 def selftest() -> bool:
     """Offline regression guard: exercises the paper's worked example
     scorecard, duration-check confirmation/flagging, and the ACE-10/-12
-    dropped-item guard, the escalation line, and the shared table,
+    dropped-item guard and the shared table,
     against synthetic Worker 3 ACE output."""
     ok = True
 
@@ -430,7 +372,7 @@ def selftest() -> bool:
     }
     result = score_from_expression(w3)
     check(result["canonical_ace_score"] == 4,
-          "PAPER MATCH (FiRE Model excerpt): worked example scores exactly 4 (items 1,2,4,11)")
+          "PAPER MATCH (worked example): worked example scores exactly 4 (items 1,2,4,11)")
     check(set(result["items_present"]) == {1, 2, 4, 11},
           "PAPER MATCH: exactly the items {1,2,4,11} of the paper's worked example (Fig. 5)")
     check(result["exponent_weights_reference"]["a"] == 4
@@ -443,13 +385,9 @@ def selftest() -> bool:
           "caregiver death (d), even if left in the expression, resolves to no item and "
           "is reported as unmapped, not scored")
 
-    check(result["crosses_high_risk_threshold"] is True and result["high_risk_threshold"] == 4,
-          "score of 4 crosses the paper's ACE>=4 escalation line")
-    check(canonical_risk(3) == "MODERATE" and canonical_risk(4) == "HIGH",
-          "3 is below and 4 is at the escalation line")
-    w3_three = dict(w3, fire_expression="[C] (a+b+c^2)")
-    check(score_from_expression(w3_three)["crosses_high_risk_threshold"] is False,
-          "score of 3 does not cross the escalation line")
+    banned = ("risk", "PTSD", "dissociation", "hypervigilance", "burden")
+    check(not any(b.lower() in k.lower() for k in result for b in banned),
+          "score card carries no risk level or clinical interpretation")
 
     # Duration: a single-year ACE-10 state is flagged but still counts
     w3_dur = {
@@ -526,6 +464,7 @@ def selftest() -> bool:
           "the shared 69-entry table resolves every entry to its own item")
 
     # Findings withheld for missing age are surfaced, never silently absent.
+    w3_three = dict(w3, fire_expression="[C] (a+b+c^2)")
     w3_age = dict(w3_three, age_unverified=[
         {"event_uid": "x1", "state_code": "st-x", "event": "hit by father", "ace_item": 2},
         {"event_uid": "x2", "state_code": "st-y", "event": "teased", "ace_item": 1}])
@@ -533,8 +472,6 @@ def selftest() -> bool:
     check(res_age["canonical_ace_score"] == 3 and res_age["pending_age_review_items"] == [2]
           and len(res_age["pending_age_review"]) == 2,
           "no-age findings are listed; only items not otherwise present count as withheld")
-    check(res_age["could_cross_high_risk_threshold"] is True,
-          "flags when confirming withheld ages could cross the ACE>=4 line")
 
     # Empty FE scores clean 0
     w3_empty = {
@@ -598,7 +535,7 @@ def main():
     logging.info("Patient: %s", patient_id)
 
     result = score_from_expression(w3)
-    flags = build_flags(result["ace_scorecard"], w3.get("feedback_loops", []))
+    feedback = feedback_notes(w3.get("feedback_loops", []))
 
     sep = "=" * 64
     print("\n" + sep)
@@ -634,15 +571,11 @@ def main():
             dur_flag = "  [DURATION UNCONFIRMED — review]"
         print(f"    [{mark}] ACE-{n:<2d} {rec['category']:<3s}{wt}{cl}{dur_flag}")
     print("-" * 64)
-    print(f"  CANONICAL ACE SCORE : {result['canonical_ace_score']}/14   "
-          f"({result['canonical_risk']} risk)")
+    print(f"  ACE SCORE           : {result['canonical_ace_score']}/14")
     print(f"  Items present       : {result['items_present']}")
     print("  Factors present     : " +
           (", ".join(f"{cat}={v}" for cat, v in result["category_breakdown"].items() if v)
            or "none"))
-    if result["crosses_high_risk_threshold"]:
-        print(f"  !! CROSSES ACE>={HIGH_RISK_THRESHOLD} ESCALATION LINE: "
-              f"{result['high_risk_threshold_note']}")
     if result["duration_unconfirmed_items"]:
         print(f"  ! Duration-unconfirmed items (present, but no contributing state "
               f"shows a 2+ year span or chronic language): {result['duration_unconfirmed_items']}")
@@ -651,16 +584,9 @@ def main():
               f"psychotherapist confirms the age): "
               f"{len(result['pending_age_review'])} finding(s); items not otherwise present: "
               f"{result['pending_age_review_items'] or 'none'}")
-        if result["could_cross_high_risk_threshold"]:
-            print(f"  !! Confirming these ages could move this individual across "
-                  f"the ACE>={HIGH_RISK_THRESHOLD} escalation line")
-    if flags["interaction_flags"]:
-        print("  Interaction flags:")
-        for fl in flags["interaction_flags"]:
-            print(f"    - {fl['rule']}: {fl['implication']}")
-    if flags["feedback_loop_flags"]:
-        print("  Feedback (childhood wounds reactivated — reference, not scored):")
-        for fb in flags["feedback_loop_flags"]:
+    if feedback:
+        print("  Feedback (same construct recurring after a gap; reference only, not scored):")
+        for fb in feedback:
             print(f"    - {fb['cluster_name']} ({fb.get('state_code')}): "
                   f"{fb.get('earlier_interval')} -> {fb.get('later_interval')}")
     print(sep + "\n")
@@ -670,7 +596,7 @@ def main():
         "input_file": str(args.input),
         "scoring_method": "expression_driven_classic_ace",
         **result,
-        **flags,
+        "feedback_notes": feedback,
     }
     try:
         with open(args.output, "w", encoding="utf-8") as f:

@@ -5,7 +5,7 @@ Regenerate the paper's result tables from a per-item judgements CSV.
 Tables (LaTeX, as in the paper, or Markdown):
   main      Table II   accuracy and grounding, notes and notes + form
   errors    Table III  error counts by mode, notes and notes + form
-  stats     Table S-stats  accuracy with Wilson 95% intervals and the McNemar
+  stats     Table SV  accuracy with Wilson 95% intervals and the McNemar
                        lower bound against the reference system
   ablation  the Supplementary ablation table (Section S10): error counts,
                        accuracy and grounding per run, both conditions
@@ -31,7 +31,7 @@ Usage:
   python3 scripts/make_tables.py --example-csv synthetic_judgements.csv
   python3 scripts/make_tables.py --selftest
 
-With a judgements CSV, --table all prints Tables II, III and S-stats; the
+With a judgements CSV, --table all prints Tables II, III and SV; the
 ablation table is printed only with --table ablation, from a CSV of
 ablation runs. --example-csv (and --example-ablation-csv) write a SYNTHETIC
 judgements file whose counts equal the published counts (individuals are
@@ -111,7 +111,7 @@ num = ev.num   # half-up rounding, as in the paper
 
 
 def short_label(system: str) -> str:
-    """Table III and S-stats abbreviate the prompted baselines."""
+    """Table III and SV abbreviate the prompted baselines."""
     return (system.replace(", structure-guided", ", SG")
                   .replace(", knowledge-matched", ", KM"))
 
@@ -177,7 +177,7 @@ def render_errors(summary, systems, fmt="latex", highlight="FiRE") -> str:
 
 
 def render_stats(summary, systems, fmt="latex") -> str:
-    """Table S-stats: accuracy (Wilson 95% CI) and McNemar lower bound."""
+    """Table SV: accuracy (Wilson 95% CI) and McNemar lower bound."""
     rows = []
     for s in systems:
         cells = [short_label(s)]
@@ -269,8 +269,8 @@ def selftest(path: str = PUBLISHED) -> bool:
     check(not bad_tot, f"Table III: each total is the sum of E1-E6 ({n_rows} rows) {bad_tot}")
     check(not bad_acc, f"Table II: accuracy = 1 - total/560 for all {n_rows} rows {bad_acc}")
     check(not bad_grd, f"Table II: grounded = 1 - (E1+E3+E4+E6)/560 for all {n_rows} rows {bad_grd}")
-    check(not bad_ci, f"Table S-stats: every Wilson 95% interval {bad_ci}")
-    check(not bad_chi, f"Table S-stats: every McNemar lower bound (rounded down) {bad_chi}")
+    check(not bad_ci, f"Table SV: every Wilson 95% interval {bad_ci}")
+    check(not bad_chi, f"Table SV: every McNemar lower bound (rounded down) {bad_chi}")
     check(all(ev.chi2_sf_1df(s[(e['system'], c)]["mcnemar_vs_reference"]["chi2_lower_bound"])
               < 1e-15 for e in pub["systems"][1:] for c in ev.CONDITIONS),
           "Section S9: every bound gives p < 1e-15")
@@ -310,7 +310,7 @@ def selftest(path: str = PUBLISHED) -> bool:
     st = render(s, "stats", "latex")
     check(r"FiRE & 94.5 (92.2, 96.1) & -- & 95.5 (93.5, 97.0) & -- \\" in st
           and r"GPT-5.1 & 69.6 (65.7, 73.3) & 94 & 57.1 (53.0, 61.2) & 172 \\" in st,
-          "Table S-stats renders as in the paper (FiRE and GPT-5.1)")
+          "Table SV renders as in the paper (FiRE and GPT-5.1)")
     ab = render(a, "ablation", "latex")
     check(r"All four checks off & 13 & 17 & 10 & 10 & 21 & 0 & 71 & 87.32 & 94.11 & "
           r"11 & 15 & 10 & 9 & 17 & 13 & 75 & 86.61 & 92.32 \\" in ab,
@@ -329,7 +329,7 @@ def selftest(path: str = PUBLISHED) -> bool:
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Render the paper's Tables II and III, Table S-stats and the "
+        description="Render the paper's Tables II and III, Table SV and the "
                     "ablation table from a judgements CSV (no model call).")
     ap.add_argument("judgements", nargs="?", help="Judgements CSV (see evaluate_judgements.py)")
     ap.add_argument("--table", choices=TABLES + ("all",), default="all",

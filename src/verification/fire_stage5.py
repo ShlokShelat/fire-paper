@@ -13,7 +13,9 @@ kept, but labelled "rescued_api_unavailable" or "rescued_no_llm" so it is
 never confused with a real Y. Two kinds of discard are never sent to the
 rescue call: an event whose text reads as therapist commentary
 (_COMMENTARY_PATTERNS, labelled "commentary_not_rescued") and an event
-Stage 4 flagged (stage4_passed false). GPT-5.1 is the same model as the extractor,
+Stage 4 flagged (stage4_passed false). Stage 4 checks only confirmed events,
+so in practice the second case does not arise for a discard. GPT-5.1 is the
+same model as the extractor,
 which keeps the paper's same-model comparison intact.
 
 Pipeline position: the last step of Worker 1, run after Stage 4

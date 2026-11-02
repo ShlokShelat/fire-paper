@@ -1,5 +1,5 @@
 {
-  "_source": "The main paper's worked example (Section 'FiRE Model on the Worked Example', Table I), written in the shape fire_worker2.py emits: one event per note line, every sub-event carrying that line's shared source_sentence plus its own supporting_quote, ages, state code and cluster. Hand-constructed from the paper, not produced by an LLM run.",
+  "_source": "The main paper's worked example (Section 'The Worked Example Through FiRE', Table I), written in the shape fire_worker2.py emits: one event per note line, every sub-event carrying that line's shared source_sentence plus its own supporting_quote, ages, state code and cluster. Hand-constructed from the paper, not produced by an LLM run.",
   "patient_id": "worked_example",
   "pipeline_stage": "worker2_state_space_mapping",
   "events": [

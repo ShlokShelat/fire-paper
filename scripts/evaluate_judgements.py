@@ -36,13 +36,13 @@ DEFINITIONS (main paper, Section VI; Supplementary Material, S5 and S9):
              omission) and E5 (a scope violation) count against accuracy
              but not against grounding.
   interval   Wilson 95% interval on accuracy, treating decisions as
-             independent (Table S-stats), and, for the clustered extreme
+             independent (Table SV), and, for the clustered extreme
              of Section S9, the same proportion with an effective sample
              of one per individual.
   McNemar    against a reference system (default FiRE) in the same
              condition. From counts alone the continuity-corrected
              statistic is bounded below by (e_B - e_F - 1)^2 / (e_B + e_F),
-             reported rounded down as in Table S-stats. When both systems
+             reported rounded down as in Table SV. When both systems
              have judgements for the same (individual, item) pairs, the
              exact statistic (|b - c| - 1)^2 / (b + c) and its p-value are
              also reported.

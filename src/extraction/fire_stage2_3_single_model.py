@@ -1854,7 +1854,9 @@ def main():
     parser.add_argument("--concurrency",  type=int, default=5,
                         help="Parallel units per batch (default: 5)")
     parser.add_argument("--resume",       action="store_true",
-                        help="Skip units already in --output file (resume partial run)")
+                        help="Skip units recorded in <output>.resume by an interrupted run. The "
+                             "output then holds only the newly processed units; not "
+                             "used for the paper's runs")
     parser.add_argument("--show-n",       type=int, default=5,
                         help="Number of units to show in --dry-run (default: 5)")
     parser.add_argument("--verbose",      action="store_true",

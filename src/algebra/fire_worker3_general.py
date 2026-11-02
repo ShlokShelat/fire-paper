@@ -5,7 +5,7 @@ Paper concept: this file implements the trajectory-assembly half of the
 paper's stage (iv), i.e. Expression Construction — turning the resolved
 state-space codes from stage (ii) into the symbolic FiRE Expression
 (the paper's algebra of union `+`, concatenation `.`, self-loop
-exponents, and feedback) via the deterministic finite automaton built
+exponents, and feedback) via the finite-automaton-style graph built
 here. Instrument-specific Projection and Scoring are separate,
 downstream stages (see fire_worker3_ace.py / fire_worker4_ace.py).
 
@@ -13,7 +13,7 @@ Pipeline position: run after Worker 2 (fire_worker2.py) has resolved
 events to state-space codes, and before an instrument-specific
 projection (fire_worker3_ace.py for ACE).
 Builds the complete patient FiRE Expression (all resolved clinical states)
-using a deterministic finite automaton. This is the general Worker 3 file,
+using a finite-automaton-style graph. This is the general Worker 3 file,
 generalised to run over all clinical states without instrument-specific gating.
 
 Main input: a Worker 2 output file (events with resolved state_codes,
@@ -276,15 +276,6 @@ def parse_worker2_output(data: dict) -> tuple:
                 "ace14_items_hint":    sub.get("ace14_items_hint"),
                 "perpetrator":         sub.get("perpetrator"),
                 "perpetrator_class":   sub.get("perpetrator_class"),
-                "mdi_items_hint":      sub.get("mdi_items_hint"),
-                "mdi_frequency":       sub.get("mdi_frequency"),
-                "gad_items_hint":      sub.get("gad_items_hint"),
-                "gad_frequency":       sub.get("gad_frequency"),
-                "isi_items_hint":      sub.get("isi_items_hint"),
-                "isi_severity":        sub.get("isi_severity"),
-                "asq_items_hint":      sub.get("asq_items_hint"),
-                "acuity":              sub.get("acuity"),
-                "safety_flag":         sub.get("safety_flag"),
                 "recency":             sub.get("recency"),
                 "role":                sub.get("role"),
             }
@@ -724,7 +715,7 @@ def detect_reactivation_mentions(flat: list) -> list:
 # ─────────────────────────────────────────────────────────────
 
 class DFA:
-    """Minimal deterministic finite automaton container: a node name list
+    """Minimal finite-automaton-style graph container: a node name list
     and a labeled, typed edge list (sequential/branch/join/self_loop/
     feedback_back/feedback_return/terminal), built by
     `component35_build_dfa` and consumed by `component4_traverse`."""
@@ -1221,15 +1212,6 @@ def build_expression(resolved_records, new_state_records, other_records,
                         "signals":         e.get("signals") or ([e.get("signal")] if e.get("signal") else []),
                         "ace_items_hint":  e.get("ace_items_hint"),
                         "perpetrator_class": e.get("perpetrator_class"),
-                        "mdi_items_hint":  e.get("mdi_items_hint"),
-                        "mdi_frequency":   e.get("mdi_frequency"),
-                        "gad_items_hint":  e.get("gad_items_hint"),
-                        "gad_frequency":   e.get("gad_frequency"),
-                        "isi_items_hint":  e.get("isi_items_hint"),
-                        "isi_severity":    e.get("isi_severity"),
-                        "asq_items_hint":  e.get("asq_items_hint"),
-                        "acuity":          e.get("acuity"),
-                        "safety_flag":     e.get("safety_flag"),
                         "recency":         e.get("recency"),
                         "role":            e.get("role"),
                     }
@@ -1290,14 +1272,11 @@ def _mk_record(state_code, cluster_name, onset, end, event, exp_type="event",
         "supporting_quote": quote, "quote_grounded": True if quote else None,
         "signal": None, "signals": [], "ace_items_hint": None, "ace14_items_hint": None,
         "perpetrator": None, "perpetrator_class": None,
-        "mdi_items_hint": None, "mdi_frequency": None, "gad_items_hint": None,
-        "gad_frequency": None, "isi_items_hint": None, "isi_severity": None,
-        "asq_items_hint": None, "acuity": None, "safety_flag": None,
         "recency": None, "role": None,
     }
 
 
-# The main paper's worked example (Section "FiRE Model on the Worked Example"),
+# The main paper's worked example (Section "The Worked Example Through FiRE"),
 # shaped the way Worker 2 emits it: every sub-event of a note line carries
 # that line's full source sentence, plus its own supporting quote.
 WORKED_EXAMPLE_LINES = {

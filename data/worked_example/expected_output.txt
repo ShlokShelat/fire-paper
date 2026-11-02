@@ -1,4 +1,4 @@
-[Main paper, Section 'FiRE Model on the Worked Example' -- expected pipeline output]
+[Main paper, Section 'The Worked Example Through FiRE' -- expected pipeline output]
 
 This file gives the expected output of running the worked example through
 Worker 3 (general) -> Worker 3 (ACE) -> Worker 4 (ACE), for use as a

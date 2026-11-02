@@ -9,7 +9,7 @@ Material.
 | Result | Reproducible here? |
 |---|---|
 | The worked example (main paper, Sections II and V; Figs. 4 and 5; Table I) | Yes, offline: `make worked-example` |
-| Every derived number in Tables II, III, S-stats and the ablation table, from the published error counts | Yes, offline: `python3 scripts/make_tables.py --selftest` |
+| Every derived number in Tables II, III, SV and the ablation table, from the published error counts | Yes, offline: `python3 scripts/make_tables.py --selftest` |
 | Running FiRE, the baselines and the ablation on new notes | Yes, with API keys (GPT-5.1; Gemini 3.1 Pro and Grok-4.20 for their baselines) |
 | The paper's numbers themselves | No: they need the 40 individuals' notes, forms, the development state space and the expert judgements, none of which can be released (S7) |
 
@@ -47,7 +47,7 @@ values below.
 | Stage 5 deduplication | cosine >= 0.88 (Jaccard >= 0.60 without embeddings) | `RESCUE_SIM_THRESHOLD`, `RESCUE_JAC_THRESHOLD` in `fire_stage5.py` |
 | Worker 2 | candidates >= 0.30; new cluster name matches an old one at 0.80; same-cluster candidate >= 0.82 mapped without the Judge; 70% of a quote's words in the source | `CANDIDATE_MIN_SCORE`, `CLUSTER_MATCH_SCORE`, `SAME_CLUSTER_AUTO_MAP`, `_quote_grounded` in `fire_worker2.py` |
 | Worker 3 | confidence 0.80 for a newly created state | `parse_worker2_output` in `fire_worker3_general.py` |
-| ACE window and high-risk flag | ages 0 to 18 inclusive; flag at a score of 4 or more | `MIN_AGE`, `MAX_AGE` in `ace14.py`; `HIGH_RISK_THRESHOLD` in `fire_worker4_ace.py` |
+| ACE window | ages 0 to 18 inclusive | `MIN_AGE`, `MAX_AGE` in `ace14.py` |
 
 ## Main results (Tables II and III)
 
@@ -152,7 +152,7 @@ README and in `scripts/evaluate_judgements.py`).
 python3 scripts/evaluate_judgements.py judgements.csv --json metrics.json
 python3 scripts/make_tables.py judgements.csv --table main     # Table II
 python3 scripts/make_tables.py judgements.csv --table errors   # Table III
-python3 scripts/make_tables.py judgements.csv --table stats    # Table S-stats
+python3 scripts/make_tables.py judgements.csv --table stats    # Table SV
 ```
 
 ## Ablation (Section S10)

@@ -160,7 +160,7 @@ def test_parameters_match_supplement_s8():
     assert (S5.RESCUE_SIM_THRESHOLD, S5.RESCUE_JAC_THRESHOLD) == (0.88, 0.60)
     assert S5._build_rescue_payload("gpt-5.1", "u")["max_completion_tokens"] == 16
     assert "confidence = 0.80" in inspect.getsource(W3G.parse_worker2_output)
-    assert W4.HIGH_RISK_THRESHOLD == 4 and (ace14.MIN_AGE, ace14.MAX_AGE) == (0, 18)
+    assert (ace14.MIN_AGE, ace14.MAX_AGE) == (0, 18)
     assert len(ace14.CLUSTER_ITEM) == 69
     assert B0.MAX_OUTPUT_TOKENS == 8000 and SG.base.MAX_OUTPUT_TOKENS == 32000
     if not HAVE_AIOHTTP:

@@ -1,4 +1,4 @@
-[Main paper, Section "A Worked Example: A Frontier Model", excerpt -- verbatim]
+[Main paper, Section "A Worked Example: Direct Scoring", excerpt -- verbatim]
 
 Excerpt. The events and ages below are from the note.
 

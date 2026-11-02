@@ -65,22 +65,6 @@ ACE_QUESTIONS = OrderedDict([
     (14, "Did the child's parents have physical or verbal fights with each other?"),
 ])
 
-# Risk bands and clinical threshold
-# The paper's clinical escalation line (ACE >= 4); same value as Worker 4.
-HIGH_RISK_THRESHOLD = 4
-HIGH_RISK_NOTE = (
-    "Four or more ACEs significantly increase risks across mental health, "
-    "substance use, and violence outcomes (Hughes et al. 2017); the paper "
-    "treats ACE >= 4 as the clinical escalation line."
-)
-
-def risk_band(score: int) -> str:
-    """Standard ACE-count risk bands, matching Worker 4's `canonical_risk`."""
-    if score == 0:  return "MINIMAL"
-    if score <= 1:  return "LOW"
-    if score < HIGH_RISK_THRESHOLD:  return "MODERATE"
-    if score <= 5:  return "HIGH"
-    return "VERY HIGH"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -381,9 +365,6 @@ def normalise(raw: dict) -> dict:
         "items":                 items,
         "items_present":         [n for n, it in items.items() if it["present"]],
         "low_confidence_items":  low_confidence_items,
-        "risk":                  risk_band(recomputed),
-        "crosses_high_risk_threshold": recomputed >= HIGH_RISK_THRESHOLD,
-        "high_risk_threshold_note": HIGH_RISK_NOTE if recomputed >= HIGH_RISK_THRESHOLD else "",
     }
 
 
@@ -417,11 +398,8 @@ def print_report(model_name: str, patient: str, result: dict):
                 print(f"         ABSENT   : {it['reasoning'][:160]}")
 
     print("\n" + "-" * 72)
-    print(f"  ACE SCORE         : {result['ace_score']}/14   ({result['risk']} risk)")
+    print(f"  ACE SCORE         : {result['ace_score']}/14")
     print(f"  Items present     : {result['items_present']}")
-    if result["crosses_high_risk_threshold"]:
-        print(f"  !! CROSSES ACE>={HIGH_RISK_THRESHOLD} ESCALATION LINE: "
-              f"{result['high_risk_threshold_note']}")
     if result["low_confidence_items"]:
         print(f"  Low confidence    : ACE items {result['low_confidence_items']} — recommend human review")
     if not result["score_consistent"] and result["model_reported_score"] is not None:
@@ -435,8 +413,8 @@ def print_report(model_name: str, patient: str, result: dict):
 # ─────────────────────────────────────────────────────────────
 
 def selftest() -> bool:
-    """Offline regression guard: exercises the model registry, risk-band
-    boundaries, reasoning-model payload shape, and score normalisation,
+    """Offline regression guard: exercises the model registry, the
+    reasoning-model payload shape, and score normalisation,
     all without any network calls."""
     ok = True
 
@@ -452,12 +430,6 @@ def selftest() -> bool:
     check(set(["gpt-5.1", "gemini-3.1-pro", "grok-4.20-0309-reasoning"]) <= set(MODELS),
           "All expected baseline models are registered")
 
-    check(risk_band(3) == "MODERATE" and risk_band(4) == "HIGH" and risk_band(6) == "VERY HIGH"
-          and HIGH_RISK_THRESHOLD == 4,
-          "Escalation line is ACE >= 4, as in the paper")
-    check(risk_band(0) == "MINIMAL" and risk_band(1) == "LOW"
-          and risk_band(2) == "MODERATE" and risk_band(5) == "HIGH",
-          "Other risk band boundaries are correct")
 
     p1 = _build_openai_payload("gpt-5.1")
     check("temperature" not in p1 and p1.get("max_completion_tokens") == 8000,
@@ -471,14 +443,8 @@ def selftest() -> bool:
     raw = {"items": {str(n): {"present": n in (1, 2, 4, 9, 11, 14)} for n in range(1, 15)},
           "ace_score": 6}
     res = normalise(raw)
-    check(res["ace_score"] == 6 and res["crosses_high_risk_threshold"] is True,
-          "Score normalisation and risk threshold detection works (6 >= 4)")
-    raw3 = {"items": {str(n): {"present": n in (1, 2, 4)} for n in range(1, 15)},
-            "ace_score": 3}
-    check(normalise(raw3)["crosses_high_risk_threshold"] is False,
-          "A score of 3 stays below the ACE >= 4 escalation line")
-    check(res["risk"] == "VERY HIGH",
-          "Risk label reflects score of 6")
+    check(res["ace_score"] == 6 and "risk" not in res,
+          "Score normalisation works, and the result carries no risk level")
 
     print("\nSELF-TEST:", "ALL PASS" if ok else "FAILURES PRESENT")
     return ok

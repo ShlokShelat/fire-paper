@@ -1,5 +1,5 @@
 {
-  "_source": "Main paper, Section 'FiRE Model on the Worked Example', Table I 'Mapping and verification for the excerpt' -- reproduced, with event labels slightly fuller than Table I (14-item ACE instrument).",
+  "_source": "Main paper, Section 'The Worked Example Through FiRE', Table I 'Mapping and verification for the excerpt' -- reproduced, with event labels slightly fuller than Table I (14-item ACE instrument).",
   "events": [
     {"event": "Father emot. abusive", "age": "0-8, 12-16", "state": "q_a", "cluster_symbol": "a", "cluster_name": "Emot. abuse", "ace_item": "ACE-1"},
     {"event": "Felt unloved", "age": "0-8", "state": "q_b", "cluster_symbol": "b", "cluster_name": "Unloved", "ace_item": "ACE-4"},

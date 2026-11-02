@@ -163,7 +163,7 @@ implementation (Supplementary Material, Section S1):
 | Step | What it does | Stage | Script |
 |---|---|---|---|
 | Preprocessor | Rule-based normalisation to flat text, no LLM | (i) | `src/preprocessing/fire_preprocessor.py` |
-| Stage 1 | Tags lines; drops commentary and admin text | (i) | `src/extraction/fire_stage1.py` |
+| Stage 1 | Tags lines; marks commentary as low confidence | (i) | `src/extraction/fire_stage1.py` |
 | Stages 2-3 | GPT-5.1 extracts events; code runs the four checks | (i), (iii) | `src/extraction/fire_stage2_3_single_model.py` |
 | Stage 4 | Rechecks entities, grounding and timing | (iii) | `src/verification/fire_stage4.py` |
 | Stage 5 | Rescues discards; removes duplicates | (iii) | `src/verification/fire_stage5.py` |
@@ -183,7 +183,7 @@ applied at ACE projection.
         |
  Preprocessor ......... flat, self-contained lines                (no LLM)
         |
- Stage 1 .............. tag lines, drop commentary and admin      (no LLM)
+ Stage 1 .............. tag lines; commentary = low confidence   (no LLM)
         |
  Stages 2-3 ........... extract events (GPT-5.1), then four checks in code:
         |               construct | actor and role | age | cited span
@@ -202,16 +202,15 @@ applied at ACE projection.
  Form step ............ notes + form only: change a form answer only on evidence
 ```
 
-FiRE holds or flags its output in ten places (Section S1): a new state is used
+FiRE holds or flags its output in nine places (Section S1): a new state is used
 only for the individual whose event created it until a psychotherapist
 approves it; a Worker 3 (ACE) removal needs a second model call to confirm it;
 an ACE item with no age evidence is held out of the score until a
 psychotherapist confirms the age; an event failing one Stages 2-3 check, an
 event lowered by the Stage 4 audit, and an event restored by the Stage 5
-rescue are kept but flagged; a failed Worker 2 matching call leaves the event
-for review instead of guessing; and Worker 3's structural checks, unconfirmed
-duration on items 10 and 13, and a score of 4 or more are flagged without
-changing the score.
+rescue are kept but flagged (a discard whose text reads as therapist
+commentary is never sent to the rescue call); a failed Worker 2 matching call leaves the event
+for review instead of guessing; and Worker 3's structural checks and unconfirmed duration on items 10 and 13 are flagged without changing the score. The score card gives the score and the items behind it, with no risk level or clinical interpretation.
 
 The cluster-to-item table (69 entries, Supplementary Material, Section S2) is
 in one place, `src/instruments/ace14.py`, which Worker 3 (ACE), Worker 4 and
@@ -361,7 +360,11 @@ individuals (Supplementary Material, Section S3). It is not released.
 Starting from `{"domains": {}}`, every state is created by Worker 2 as
 provisional. A provisional state is used at once for the individual whose
 event created it and hidden from every other individual until a
-psychotherapist approves it. To review provisional states:
+psychotherapist approves it. After each run, Worker 2 merges approved states
+of one cluster whose embeddings have cosine 0.82 or more (`--no-dedup-sweep`
+turns this off; the paper's runs kept it on). Provisional states are never
+part of this merge, so no individual's new state is merged with another
+state. To review provisional states:
 
 ```
 python3 "$FIRE_SRC/state_space/fire_worker2.py" --state-space ../state_space.json --export-review review.json
@@ -461,7 +464,7 @@ tables are recomputed offline:
 python3 scripts/evaluate_judgements.py judgements.csv [--json metrics.json]
 python3 scripts/make_tables.py judgements.csv --table main      # Table II (LaTeX rows)
 python3 scripts/make_tables.py judgements.csv --table errors    # Table III
-python3 scripts/make_tables.py judgements.csv --table stats     # Table S-stats
+python3 scripts/make_tables.py judgements.csv --table stats     # Table SV
 python3 scripts/make_tables.py ablation.csv   --table ablation  # ablation table
 python3 scripts/make_tables.py judgements.csv --format markdown
 ```
@@ -483,7 +486,7 @@ total of Table III is the number of decisions that do not match the
 reference); grounding is the share with no E1, E3, E4 or E6 error; intervals
 are Wilson 95% intervals over the 560 decisions, plus the clustered extreme of
 Section S9 (one effective decision per individual); the McNemar statistic
-against FiRE is bounded below from the error counts, as in Table S-stats, and
+against FiRE is bounded below from the error counts, as in Table SV, and
 computed exactly when both systems' judgements cover the same decisions. The
 scripts check that each system has 14 judged items per individual.
 
@@ -528,6 +531,15 @@ itself (`--check` verifies them). The only change from the paper's runs: the
 extraction prompt named the partner clinic, which now reads `[partner clinic]`.
 `prompts/indian_cultural_glossary.txt` is an input, not generated: the
 structure-guided and knowledge-matched prompts include its table.
+
+The examples inside the prompts and the code are de-identified paraphrases
+of development notes, never of the 40 evaluation notes. Two labels are role
+names inside the prompts, not claims about the method: the "Oracle" splits an
+event into pieces and the "Matching Judge" decides whether a piece matches an
+existing state. The splitting prompt still carries the header "may be
+incomplete for A_ONLY/B_ONLY", left from an earlier design with two
+extraction models. The paper's runs used GPT-5.1 as the only extractor, so
+that case never arises; the text is kept so the prompt stays exactly as run.
 
 ## The worked example
 
@@ -574,7 +586,7 @@ fire-paper/
 ├── scripts/
 │   ├── run_fire.py               the pipeline end to end, one individual or a folder
 │   ├── evaluate_judgements.py    accuracy, grounding, intervals, McNemar from judgements
-│   └── make_tables.py            Tables II, III, S-stats and the ablation table
+│   └── make_tables.py            Tables II, III, SV and the ablation table
 ├── prompts/                  every prompt, verbatim, generated from the code
 │   ├── export_prompts.py     regenerates the .txt files (--check verifies them)
 │   ├── extraction_system_prompt.txt   oracle_and_judge_prompts.txt
@@ -594,6 +606,10 @@ fire-paper/
 The consultation notes, self-filled forms, reference scores and expert
 judgements cannot be released, as required by the approved protocol and the
 participants' consent; the worked example is the only note text here. The
+evaluation notes contained no ACE labels, so no system saw the reference in
+its input. The code can read an explicit "ACE n" label, and the baselines
+offer `--strip-ace-annotations`; both were written for development notes and
+had no effect in the reported runs. The
 study was approved by the ACEAS-Independent Ethics Committee, Ahmedabad, India
 (CDSCO Reg. No. ECR/281/Indt/GJ/2017/RR-25; OHRP Reg. No. IRB00011046;
 Protocol WS/Apr/2026, Version 2.0, approved 23 May 2026). Written informed

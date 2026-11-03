@@ -20,7 +20,7 @@ The three rechecks:
   3. Timing    — the life stage must not contradict the age context or a
      non-adjacent life-stage cue in the source. Severity LOW.
 An event's confidence falls by 0.20, 0.10 or 0.05 for a failed check of
-high, medium or low severity (Supplementary Material, Section S8; at most
+high, medium or low severity (Supplementary Material, Section S7; at most
 0.30 in total, never below 0.40); a HIGH or MEDIUM failure lowers the
 status to TENTATIVE, a LOW failure only flags.
 

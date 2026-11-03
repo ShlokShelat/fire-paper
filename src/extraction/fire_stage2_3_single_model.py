@@ -773,7 +773,7 @@ def build_payload(model_name, system_msg, user_msg,
                   max_output_tokens=2000, reasoning_effort=DEFAULT_REASONING_EFFORT):
     """
     Build a Chat Completions payload valid for both classic chat models
-    and GPT-5-family reasoning models (which reject temperature/max_tokens).
+    and GPT-5-family reasoning models (sent no temperature; max_completion_tokens).
     """
     payload = {
         "model": model_name,

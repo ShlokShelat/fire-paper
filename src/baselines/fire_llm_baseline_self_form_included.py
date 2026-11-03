@@ -14,9 +14,9 @@ the model's account of what it changed) and lists every change without a
 stated reason under unjustified_changes. These flags are for review only.
 Without --form it runs the same notes-only prompt as fire_llm_baseline.py.
 
-Model-call settings (Supplementary Material, Section S8): GPT-5.1 rejects
-an explicit temperature, so it is omitted and the API's default reasoning
-effort is used; Gemini 3.1 Pro and Grok-4.20 get temperature 0. The output
+Model-call settings (Supplementary Material, Section S7): GPT-5.1 is sent
+no temperature, so the API's defaults apply, with its default reasoning
+effort ("none"); Gemini 3.1 Pro and Grok-4.20 get temperature 0. The output
 limit is MAX_OUTPUT_TOKENS below. This script shares no code with the FiRE
 pipeline; the structure-guided and knowledge-matched baselines import its
 item texts, model registry and API calls.
@@ -207,7 +207,7 @@ MODELS = {
 }
 
 # Output limit for this script's calls: 16000 tokens, as in Supplementary
-# Table "Model-call parameters and fixed thresholds" (Section S8). This script
+# Table "Model-call parameters and fixed thresholds" (Section S7). This script
 # produced the plain-baseline results in the notes-plus-form condition;
 # fire_llm_baseline.py (8000 tokens) produced the notes-only ones.
 MAX_OUTPUT_TOKENS = 16000

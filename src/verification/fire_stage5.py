@@ -90,7 +90,7 @@ from typing import Optional
 # ─────────────────────────────────────────────────────────────
 
 # The two similarity thresholds are the deduplication thresholds of
-# Supplementary Material, Section S8 (used by run_dedup, despite the
+# Supplementary Material, Section S7 (used by run_dedup, despite the
 # RESCUE_ prefix). RESCUE_STATUSES lists the statuses the rescue job examines.
 RESCUE_SIM_THRESHOLD  = 0.88   # cosine: near-identical events
 RESCUE_JAC_THRESHOLD  = 0.60   # Jaccard fallback
@@ -103,9 +103,9 @@ RESCUE_MODEL_NAME  = "gpt-5.1"
 RESCUE_API_URL     = "https://api.openai.com/v1/chat/completions"
 RESCUE_API_KEY_ENV = "OPENAI_API_KEY"
 
-# gpt-5.1 is in the GPT-5 reasoning family, which rejects `temperature`
-# and `max_tokens` on Chat Completions and needs `max_completion_tokens`
-# instead (same fact established for Worker 1 Stage 2/3).
+# gpt-5.1 is in the GPT-5 reasoning family: on Chat Completions it takes
+# `max_completion_tokens` instead of `max_tokens`, and this code sends it no
+# `temperature`, so the API default applies (as in Worker 1 Stages 2-3).
 _REASONING_FAMILY_RE = re.compile(r'^(gpt-5|o1|o3|o4)', re.IGNORECASE)
 
 
@@ -273,7 +273,7 @@ def lookup_section(subsection: str, section_map: dict) -> str:
 def _build_rescue_payload(model_name: str, user_msg: str) -> dict:
     """
     Payload shape depends on whether model_name is a reasoning model.
-    gpt-5.1 rejects temperature/max_tokens and needs max_completion_tokens.
+    gpt-5.1 is sent no temperature and needs max_completion_tokens.
     reasoning_effort="none" suppresses hidden reasoning for this trivial
     Y/N classification, and the token cap has a small safety margin rather
     than the bare minimum a single character would need — a reasoning

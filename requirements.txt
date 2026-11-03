@@ -1,6 +1,6 @@
 # Third-party packages imported by src/ (Python >= 3.10). The paper's runs
 # used Python 3.13.12, torch 2.11.0 and numpy 2.4.4 (Supplementary Material,
-# Section S8); the lower bounds below are the oldest releases with the APIs
+# Section S7); the lower bounds below are the oldest releases with the APIs
 # the code uses.
 #
 # The baseline scripts, the algebra and instrument code, scripts/ and the

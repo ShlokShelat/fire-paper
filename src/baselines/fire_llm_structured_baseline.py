@@ -67,7 +67,7 @@ SCORING_PREFIX = "llm_structured"
 # The structured reply (an events list plus the 14 items) is several times
 # longer than the plain baseline's, and GPT-5.1 counts its hidden reasoning
 # against the same budget, so the output limit and the HTTP timeout are
-# raised to 32000 tokens, as in Supplementary Section S8. Nothing else in the
+# raised to 32000 tokens, as in Supplementary Section S7. Nothing else in the
 # request changes. The knowledge-matched script inherits this limit.
 base.MAX_OUTPUT_TOKENS = 32000
 _base_post_json = base._post_json

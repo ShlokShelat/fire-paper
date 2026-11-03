@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FiRE ablation runs (Supplementary Material, Section S10).
+FiRE ablation runs (Supplementary Material, Section S9).
 
 Each run removes one part of FiRE and keeps everything else fixed. The
 extraction model's output is produced once, by the main run's Stages 2-3,
@@ -64,7 +64,7 @@ A run writes, in --out-dir, the same files a pipeline run writes
 (validated_events.json, validated_events_s4.json, validated_events_s5.json,
 final_mapped_events.json, worker3_output.json, worker3_ace_output.json,
 ace_scorecard.json) and ablation_manifest.json, which records the run, the
-patched functions and the input hashes. The ablation results (Section S10) were
+patched functions and the input hashes. The ablation results (Section S9) were
 judged from such outputs by the same double-blind process as the main
 results; nothing here computes accuracy.
 """
@@ -810,7 +810,7 @@ def selftest() -> bool:
 
 def main():
     ap = argparse.ArgumentParser(
-        description="FiRE ablation runs (Supplementary Material, Section S10). One switch per run.")
+        description="FiRE ablation runs (Supplementary Material, Section S9). One switch per run.")
     g = ap.add_mutually_exclusive_group()
     helps = {
         "no_construct_check": "Stages 2-3 construct check always passes.",

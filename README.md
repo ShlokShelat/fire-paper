@@ -114,7 +114,7 @@ knowledge-matched):
 | Gemini 3.1 Pro, KM | Notes + form | 23 | 51 | 27 | 18 | 21 | 56 | 196 |
 
 Ablation over the same 560 decisions with GPT-5.1 (Supplementary Material,
-Section S10). Grd.: share of decisions with no E1, E3, E4 or E6 error.
+Section S9). Grd.: share of decisions with no E1, E3, E4 or E6 error.
 
 Notes only:
 
@@ -151,7 +151,7 @@ metrics and render the tables from a per-item judgements file (see
 cannot be released; the aggregate counts are in
 `data/paper_results/published_results.json`, and `make_tables.py --selftest`
 checks that every derived number above, and the intervals and McNemar bounds
-of Supplementary Section S9, follows from those counts.
+of Supplementary Section S8, follows from those counts.
 
 ## Pipeline
 
@@ -221,7 +221,7 @@ the knowledge-matched baseline's state-space trimmer all import.
 ### Requirements
 
 Python 3.10 or later; the paper's runs used Python 3.13.12, torch 2.11.0 and
-numpy 2.4.4 on a CPU-only laptop (Supplementary Material, Section S8).
+numpy 2.4.4 on a CPU-only laptop (Supplementary Material, Section S7).
 `pip install -r requirements.txt` installs the four third-party packages the
 pipeline imports: `aiohttp`, `numpy`, `sentence-transformers` (which installs
 `torch`) and `spacy`. The two small local models (`all-MiniLM-L6-v2` and
@@ -238,8 +238,8 @@ API keys are read from environment variables (Stages 2-3 also accept
 | `XAI_API_KEY` (or `GROK_API_KEY`) | Grok-4.20 baselines |
 | `FIRE_STATE_SPACE` | optional: state-space path for the knowledge-matched baseline, instead of `--state-space` |
 
-Model-call settings follow Supplementary Material, Section S8: FiRE's GPT-5.1
-calls omit temperature (GPT-5.1 rejects it) and set reasoning effort "none";
+Model-call settings follow Supplementary Material, Section S7: FiRE's GPT-5.1
+calls set no temperature (the API default applies) and set reasoning effort "none";
 the GPT-5.1 baselines omit temperature and use the API's default reasoning
 effort; Gemini 3.1 Pro and Grok-4.20 receive temperature 0. Output limits:
 2000 tokens for extraction and the Worker 3 item check, 4000 and 300 for
@@ -412,14 +412,14 @@ notes and every reference to where a state was seen in a note.
 The output limits are 8000 tokens for `fire_llm_baseline.py` (plain, notes
 only), 16000 for `fire_llm_baseline_self_form_included.py` (plain, notes plus
 form), and 32000 for the structure-guided and knowledge-matched scripts, whose
-replies are much longer (Supplementary Section S8). The plain baselines also
+replies are much longer (Supplementary Section S7). The plain baselines also
 accept `--strip-ace-annotations`, which removes note lines that already state
 an ACE score or item list; it is off by default.
 
 ## Running the ablation
 
 `src/ablation/fire_ablation.py` implements the runs of Supplementary Material,
-Section S10. It reuses the main run's Stages 2-3 output, so the Stage 2
+Section S9. It reuses the main run's Stages 2-3 output, so the Stage 2
 extraction call is never repeated and every run shares the same extracted
 events. Later GPT-5.1 calls (Stage 5, Worker 2, the Worker 3 item check) are
 re-run. A removed part is replaced by a neutral stand-in (a removed check
@@ -485,7 +485,7 @@ mode (in the paper every judged error carries exactly one mode, so the
 total of Table III is the number of decisions that do not match the
 reference); grounding is the share with no E1, E3, E4 or E6 error; intervals
 are Wilson 95% intervals over the 560 decisions, plus the clustered extreme of
-Section S9 (one effective decision per individual); the McNemar statistic
+Section S8 (one effective decision per individual); the McNemar statistic
 against FiRE is bounded below from the error counts, as in Table SV, and
 computed exactly when both systems' judgements cover the same decisions. The
 scripts check that each system has 14 judged items per individual.
@@ -582,7 +582,7 @@ fire-paper/
 │   ├── baselines/fire_llm_structured_baseline.py        structure-guided
 │   ├── baselines/fire_llm_knowledge_baseline.py         knowledge-matched
 │   ├── baselines/trim_state_space.py                    state space -> prompt file
-│   └── ablation/fire_ablation.py                 ablation runs (Section S10)
+│   └── ablation/fire_ablation.py                 ablation runs (Section S9)
 ├── scripts/
 │   ├── run_fire.py               the pipeline end to end, one individual or a folder
 │   ├── evaluate_judgements.py    accuracy, grounding, intervals, McNemar from judgements
@@ -615,13 +615,13 @@ study was approved by the ACEAS-Independent Ethics Committee, Ahmedabad, India
 Protocol WS/Apr/2026, Version 2.0, approved 23 May 2026). Written informed
 consent was obtained from every participant, and every system, including the
 commercial models, received only coded, de-identified records (Supplementary
-Material, Section S7).
+Material, Section S6).
 
 FiRE is assistive decision support for psychotherapists, not a diagnostic
 authority; its output is meant to be checked and corrected by a clinician.
 Total API cost and token counts were not reliably recorded for the paper's
 runs; the running cost estimates the scripts print use placeholder rates and
-should not be reported (Section S8).
+should not be reported (Section S7).
 
 ## Citation
 

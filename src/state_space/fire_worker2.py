@@ -287,7 +287,7 @@ class TokenCounter:
     def cost_usd(self) -> float:
         """Running cost estimate. The per-token rates are placeholders, not
         GPT-5.1's prices; do not report this figure (Supplementary Material,
-        Section S8 reports no cost for this reason)."""
+        Section S7 reports no cost for this reason)."""
         return (self.prompt_tokens * 0.14 + self.completion_tokens * 0.28) / 1_000_000
 
     def summary(self) -> str:

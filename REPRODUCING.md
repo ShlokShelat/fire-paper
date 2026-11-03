@@ -1,7 +1,7 @@
 # Reproducing the results
 
 This guide lists, for each reported result, what it needs and the commands
-that produce it. Section numbers S1 to S10 refer to the Supplementary
+that produce it. Section numbers S1 to S9 refer to the Supplementary
 Material.
 
 ## What can be reproduced from this repository alone
@@ -11,7 +11,7 @@ Material.
 | The worked example (main paper, Sections II and V; Figs. 4 and 5; Table I) | Yes, offline: `make worked-example` |
 | Every derived number in Tables II, III, SV and the ablation table, from the published error counts | Yes, offline: `python3 scripts/make_tables.py --selftest` |
 | Running FiRE, the baselines and the ablation on new notes | Yes, with API keys (GPT-5.1; Gemini 3.1 Pro and Grok-4.20 for their baselines) |
-| The paper's numbers themselves | No: they need the 40 individuals' notes, forms, the development state space and the expert judgements, none of which can be released (S7) |
+| The paper's numbers themselves | No: they need the 40 individuals' notes, forms, the development state space and the expert judgements, none of which can be released (S6) |
 
 The rest of this guide describes the full procedure, for a site with its own
 notes and its own reference team.
@@ -19,21 +19,21 @@ notes and its own reference team.
 ## Environment
 
 - Python 3.10 or later; the paper's runs used Python 3.13.12, torch 2.11.0 and
-  numpy 2.4.4 on an Apple M1 laptop without a GPU (S8). `pip install -r
+  numpy 2.4.4 on an Apple M1 laptop without a GPU (S7). `pip install -r
   requirements.txt`.
 - Models: `gpt-5.1` (FiRE and the GPT-5.1 baselines), `gemini-3.1-pro`
   (API model `gemini-3.1-pro-preview`) and `grok-4.20-0309-reasoning`.
   Hosted models change over time; a later model version may shift both FiRE's
-  and the baselines' results (S9).
+  and the baselines' results (S8).
 - Every result in the paper comes from a single run. Each individual was
   processed once by FiRE and once by each baseline in each condition, one
-  individual at a time, and nothing was averaged over repeats (S8).
+  individual at a time, and nothing was averaged over repeats (S7).
 - Check the installation offline first: `make check`.
 
 ## Parameters (Supplementary Table "Model-call parameters and fixed thresholds")
 
 None of these was tuned by a sweep; all were fixed on development data before
-evaluation (S8). `tests/test_scripts.py` checks that the code still holds the
+evaluation (S7). `tests/test_scripts.py` checks that the code still holds the
 values below.
 
 | Where | Value | In the code |
@@ -155,10 +155,10 @@ python3 scripts/make_tables.py judgements.csv --table errors   # Table III
 python3 scripts/make_tables.py judgements.csv --table stats    # Table SV
 ```
 
-## Ablation (Section S10)
+## Ablation (Section S9)
 
 The ablation reuses each individual's main-run Stages 2-3 output, so the
-extraction call is never repeated (S10). For every individual and every
+extraction call is never repeated (S9). For every individual and every
 switch:
 
 ```
@@ -190,5 +190,5 @@ python3 scripts/make_tables.py --selftest
 checks, from `data/paper_results/published_results.json`, that each total in
 Table III is the sum of its modes; that every accuracy and grounding value in
 Table II and the ablation table follows from the counts; and that every
-Wilson interval, McNemar lower bound and the clustered extreme in Section S9
+Wilson interval, McNemar lower bound and the clustered extreme in Section S8
 follow from them as well.

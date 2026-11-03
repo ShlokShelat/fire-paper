@@ -26,7 +26,7 @@ INPUT: a CSV file with one row per item decision and these columns:
                 optional, 0 or 1. When present, a row whose answers differ
                 must carry an error mode (checked).
 
-DEFINITIONS (main paper, Section VI; Supplementary Material, S5 and S9):
+DEFINITIONS (main paper, Section VI; Supplementary Material, S5 and S8):
 
   accuracy   share of decisions with no error mode. In the paper every
              judged error carries exactly one mode, so the total of Table
@@ -37,7 +37,7 @@ DEFINITIONS (main paper, Section VI; Supplementary Material, S5 and S9):
              but not against grounding.
   interval   Wilson 95% interval on accuracy, treating decisions as
              independent (Table SV), and, for the clustered extreme
-             of Section S9, the same proportion with an effective sample
+             of Section S8, the same proportion with an effective sample
              of one per individual.
   McNemar    against a reference system (default FiRE) in the same
              condition. From counts alone the continuity-corrected
@@ -112,7 +112,7 @@ def wilson_interval(successes: float, n: float, z: float = Z_95) -> tuple:
 
 def mcnemar_lower_bound(errors_b: int, errors_f: int) -> float:
     """Lower bound on the continuity-corrected McNemar statistic from the two
-    systems' error counts alone (Supplementary Material, Section S9)."""
+    systems' error counts alone (Supplementary Material, Section S8)."""
     if errors_b + errors_f == 0:
         return 0.0
     return max(errors_b - errors_f - 1, 0) ** 2 / (errors_b + errors_f)

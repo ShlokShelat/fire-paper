@@ -7,7 +7,7 @@ Tables (LaTeX, as in the paper, or Markdown):
   errors    Table III  error counts by mode, notes and notes + form
   stats     Table SV  accuracy with Wilson 95% intervals and the McNemar
                        lower bound against the reference system
-  ablation  the Supplementary ablation table (Section S10): error counts,
+  ablation  the Supplementary ablation table (Section S9): error counts,
                        accuracy and grounding per run, both conditions
 
 The judgements CSV format and the metric definitions are those of
@@ -19,7 +19,7 @@ notes and reference scores are protected; see the README). What is public
 are the aggregate counts, kept in data/paper_results/published_results.json.
 --published renders the tables from those counts, and --self-test checks
 that every derived number the paper reports (accuracy, grounding, Wilson
-intervals, McNemar bounds, the clustered extreme of Section S9, and the
+intervals, McNemar bounds, the clustered extreme of Section S8, and the
 ablation table) follows from the error counts under the definitions in
 evaluate_judgements.py.
 
@@ -273,7 +273,7 @@ def selftest(path: str = PUBLISHED) -> bool:
     check(not bad_chi, f"Table SV: every McNemar lower bound (rounded down) {bad_chi}")
     check(all(ev.chi2_sf_1df(s[(e['system'], c)]["mcnemar_vs_reference"]["chi2_lower_bound"])
               < 1e-15 for e in pub["systems"][1:] for c in ev.CONDITIONS),
-          "Section S9: every bound gives p < 1e-15")
+          "Section S8: every bound gives p < 1e-15")
 
     bad_cl = []
     for system, ci in pub["clustered_extreme_notes_only"].items():
@@ -282,7 +282,7 @@ def selftest(path: str = PUBLISHED) -> bool:
         lo, hi = s[(system, "notes")]["accuracy_ci95_one_per_individual"]
         if [num(lo, 1), num(hi, 1)] != [num(v, 1) for v in ci]:
             bad_cl.append(system)
-    check(not bad_cl, f"Section S9: the clustered extreme (one decision per individual) {bad_cl}")
+    check(not bad_cl, f"Section S8: the clustered extreme (one decision per individual) {bad_cl}")
 
     a = summary_of("ablation")
     bad_ab = []

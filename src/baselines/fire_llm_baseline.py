@@ -14,9 +14,9 @@ The notes-plus-form condition is run with
 fire_llm_baseline_self_form_included.py --form, whose direct mode uses the
 same prompt text as this script.
 
-Model-call settings (Supplementary Material, Section S8): GPT-5.1 rejects
-an explicit temperature, so it is omitted and the API's default reasoning
-effort is used; Gemini 3.1 Pro and Grok-4.20 get temperature 0. Output
+Model-call settings (Supplementary Material, Section S7): GPT-5.1 is sent
+no temperature, so the API's defaults apply, with its default reasoning
+effort ("none"); Gemini 3.1 Pro and Grok-4.20 get temperature 0. Output
 limit 8000 tokens. This script shares no code with the FiRE pipeline.
 
 Usage:
@@ -125,7 +125,7 @@ MODELS = {
     },
 }
 
-# Output limit for every baseline call (Supplementary Material, Section S8).
+# Output limit for every baseline call (Supplementary Material, Section S7).
 MAX_OUTPUT_TOKENS = 8000
 
 _REASONING_FAMILY_RE = re.compile(r'^(gpt-5|o1|o3|o4)', re.IGNORECASE)

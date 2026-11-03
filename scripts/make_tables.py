@@ -5,14 +5,14 @@ Regenerate the paper's result tables from a per-item judgements CSV.
 Tables (LaTeX, as in the paper, or Markdown):
   main      Table II   accuracy and grounding, notes and notes + form
   errors    Table III  error counts by mode, notes and notes + form
-  stats     Table SV  accuracy with Wilson 95% intervals and the McNemar
+  stats     Table SV accuracy with Wilson 95% intervals and the McNemar
                        lower bound against the reference system
   ablation  the Supplementary ablation table (Section S9): error counts,
                        accuracy and grounding per run, both conditions
 
 The judgements CSV format and the metric definitions are those of
 scripts/evaluate_judgements.py. For the ablation table, pass a CSV whose
-`system` column holds the run names ("FiRE", "Construct check off", ...).
+`system` column holds the run names ("FiRE", "Construct off", ...).
 
 The per-item judgements behind the paper cannot be released (consultation
 notes and reference scores are protected; see the README). What is public
@@ -312,7 +312,7 @@ def selftest(path: str = PUBLISHED) -> bool:
           and r"GPT-5.1 & 69.6 (65.7, 73.3) & 94 & 57.1 (53.0, 61.2) & 172 \\" in st,
           "Table SV renders as in the paper (FiRE and GPT-5.1)")
     ab = render(a, "ablation", "latex")
-    check(r"All four checks off & 13 & 17 & 10 & 10 & 21 & 0 & 71 & 87.32 & 94.11 & "
+    check(r"All four off & 13 & 17 & 10 & 10 & 21 & 0 & 71 & 87.32 & 94.11 & "
           r"11 & 15 & 10 & 9 & 17 & 13 & 75 & 86.61 & 92.32 \\" in ab,
           "the ablation table renders as in the paper (all four checks off)")
     md = render(s, "main", "markdown")

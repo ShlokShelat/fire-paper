@@ -201,8 +201,8 @@ def baselines() -> str:
         SG.PROCEDURE, SG._glossary_block = saved
     return doc(
         "Baseline prompts (GPT-5.1, Gemini 3.1 Pro, Grok-4.20)",
-        "Sent in one call per individual by src/baselines/. GPT-5.1: no temperature, the\n"
-        "API's default reasoning effort; Gemini 3.1 Pro and Grok-4.20: temperature 0.\n"
+        "Sent in one call per individual by src/baselines/. GPT-5.1: no temperature, API\n"
+        "defaults (reasoning effort \"none\", as in FiRE); Gemini 3.1 Pro, Grok-4.20: temperature 0.\n"
         f"Output limits in the code: fire_llm_baseline.py {B0.MAX_OUTPUT_TOKENS}, "
         f"fire_llm_baseline_self_form_included.py {B1_LIMIT},\n"
         "structure-guided and knowledge-matched 32000 tokens. The plain prompt gives no\n"

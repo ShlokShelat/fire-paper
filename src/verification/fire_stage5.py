@@ -397,7 +397,7 @@ def run_rescue(events: list, section_map: dict, api_key: Optional[str],
     stats = {
         "discards_examined":   rescued_confirmed + rescued_fallback
                                + confirmed_discard + skipped_commentary,
-        "rescued":              rescued_confirmed + rescued_fallback,  # back-compat total
+        "rescued":              rescued_confirmed + rescued_fallback,  # total of both rescue kinds
         "rescued_llm_confirmed": rescued_confirmed,                     # actual Y verdicts
         "rescued_api_fallback":  rescued_fallback,                      # defaulted, unverified
         "confirmed_discard":    confirmed_discard,

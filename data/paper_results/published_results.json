@@ -469,7 +469,7 @@
    }
   },
   {
-   "run": "Construct check off",
+   "run": "Construct off",
    "notes": {
     "errors": {
      "E1": 4,
@@ -498,7 +498,7 @@
    }
   },
   {
-   "run": "Actor and role check off",
+   "run": "Actor and role off",
    "notes": {
     "errors": {
      "E1": 0,
@@ -527,7 +527,7 @@
    }
   },
   {
-   "run": "Age check off",
+   "run": "Age off",
    "notes": {
     "errors": {
      "E1": 0,
@@ -556,7 +556,7 @@
    }
   },
   {
-   "run": "Cited-span check off",
+   "run": "Cited span off",
    "notes": {
     "errors": {
      "E1": 6,
@@ -585,7 +585,7 @@
    }
   },
   {
-   "run": "All four checks off",
+   "run": "All four off",
    "notes": {
     "errors": {
      "E1": 13,
@@ -643,7 +643,7 @@
    }
   },
   {
-   "run": "Model does the scoring",
+   "run": "Model scores",
    "notes": {
     "errors": {
      "E1": 3,

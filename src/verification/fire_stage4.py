@@ -101,7 +101,7 @@ def _looks_like_header(before_text: str, max_len: int) -> bool:
     Shared, single definition of "does this look like a section header
     rather than the start of an ordinary sentence?" — used by BOTH the
     subsection-match branch and the no-subsection fallback branch, so they
-    no longer disagree. Requires either an em/en dash, a known header
+    always agree. Requires either an em/en dash, a known header
     signal word, or at least TWO capitalised words (a title-case heading
     like "Father Beat" or "Presenting Problems", not just the first word
     of a normal sentence like "Client believes").
@@ -227,8 +227,7 @@ def _cosine_sim(text_a: str, text_b: str) -> Optional[float]:
     On a genuine encode failure, return None (skip this check) rather
     than 1.0 (silently claim perfect groundedness). None is treated by the
     caller as "could not verify" and does not downgrade the event, but the
-    failure is now visible in the logs at ERROR level instead of being
-    masked as a clean pass.
+    failure is logged at ERROR level rather than counted as a clean pass.
     """
     try:
         from sentence_transformers import util as st_util

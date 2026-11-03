@@ -121,29 +121,30 @@ Notes only:
 | Run | E1 | E2 | E3 | E4 | E5 | E6 | Tot. | Acc. (%) | Grd. (%) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | FiRE | 0 | 27 | 0 | 0 | 4 | 0 | 31 | 94.46 | 100.00 |
-| Construct check off | 4 | 26 | 0 | 1 | 4 | 0 | 35 | 93.75 | 99.11 |
-| Actor and role check off | 0 | 26 | 4 | 0 | 4 | 0 | 34 | 93.93 | 99.29 |
-| Age check off | 0 | 25 | 0 | 0 | 19 | 0 | 44 | 92.14 | 100.00 |
-| Cited-span check off | 6 | 21 | 4 | 5 | 5 | 0 | 41 | 92.68 | 97.32 |
-| All four checks off | 13 | 17 | 10 | 10 | 21 | 0 | 71 | 87.32 | 94.11 |
+| Construct off | 4 | 26 | 0 | 1 | 4 | 0 | 35 | 93.75 | 99.11 |
+| Actor and role off | 0 | 26 | 4 | 0 | 4 | 0 | 34 | 93.93 | 99.29 |
+| Age off | 0 | 25 | 0 | 0 | 19 | 0 | 44 | 92.14 | 100.00 |
+| Cited span off | 6 | 21 | 4 | 5 | 5 | 0 | 41 | 92.68 | 97.32 |
+| All four off | 13 | 17 | 10 | 10 | 21 | 0 | 71 | 87.32 | 94.11 |
 | No state space | 8 | 47 | 8 | 9 | 7 | 0 | 79 | 85.89 | 95.54 |
-| Model does the scoring | 3 | 30 | 2 | 4 | 6 | 0 | 45 | 91.96 | 98.39 |
+| Model scores | 3 | 30 | 2 | 4 | 6 | 0 | 45 | 91.96 | 98.39 |
 
 Notes + form:
 
 | Run | E1 | E2 | E3 | E4 | E5 | E6 | Tot. | Acc. (%) | Grd. (%) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | FiRE | 0 | 22 | 0 | 0 | 3 | 0 | 25 | 95.54 | 100.00 |
-| Construct check off | 3 | 23 | 0 | 1 | 3 | 1 | 31 | 94.46 | 99.11 |
-| Actor and role check off | 0 | 22 | 4 | 0 | 3 | 1 | 30 | 94.64 | 99.11 |
-| Age check off | 0 | 21 | 0 | 0 | 15 | 0 | 36 | 93.57 | 100.00 |
-| Cited-span check off | 5 | 18 | 4 | 5 | 4 | 5 | 41 | 92.68 | 96.61 |
-| All four checks off | 11 | 15 | 10 | 9 | 17 | 13 | 75 | 86.61 | 92.32 |
+| Construct off | 3 | 23 | 0 | 1 | 3 | 1 | 31 | 94.46 | 99.11 |
+| Actor and role off | 0 | 22 | 4 | 0 | 3 | 1 | 30 | 94.64 | 99.11 |
+| Age off | 0 | 21 | 0 | 0 | 15 | 0 | 36 | 93.57 | 100.00 |
+| Cited span off | 5 | 18 | 4 | 5 | 4 | 5 | 41 | 92.68 | 96.61 |
+| All four off | 11 | 15 | 10 | 9 | 17 | 13 | 75 | 86.61 | 92.32 |
 | No state space | 8 | 43 | 9 | 9 | 5 | 8 | 82 | 85.36 | 93.93 |
-| Model does the scoring | 3 | 25 | 3 | 4 | 4 | 5 | 44 | 92.14 | 97.32 |
+| Model scores | 3 | 25 | 3 | 4 | 4 | 5 | 44 | 92.14 | 97.32 |
 
-How these numbers were produced: the five-psychotherapist reference team
-judged every system's output item by item, double-blind (Supplementary
+How these numbers were produced: the two psychotherapists who wrote the notes
+judged every system's output item by item, double-blind, with disagreements
+settled by senior psychotherapists and the result checked by an auditor (Supplementary
 Material, Section S5), and the metrics follow from those judgements.
 `scripts/evaluate_judgements.py` and `scripts/make_tables.py` compute the
 metrics and render the tables from a per-item judgements file (see
@@ -210,7 +211,7 @@ psychotherapist confirms the age; an event failing one Stages 2-3 check, an
 event lowered by the Stage 4 audit, and an event restored by the Stage 5
 rescue are kept but flagged (a discard whose text reads as therapist
 commentary is never sent to the rescue call); a failed Worker 2 matching call leaves the event
-for review instead of guessing; and Worker 3's structural checks and unconfirmed duration on items 10 and 13 are flagged without changing the score. The score card gives the score and the items behind it, with no risk level or clinical interpretation.
+for review instead of guessing; and Worker 3's structural checks and Worker 4's unconfirmed duration on items 10 and 13 are flagged without changing the score. If Worker 2's splitting call fails, the event is logged as an error and not mapped. Worker 3 joins neighbouring states by union when their ages overlap, and also when the note says they happened at the same time (for example "meanwhile"); union never changes an ACE score. The score card gives the score and the items behind it, with no risk level or clinical interpretation.
 
 The cluster-to-item table (69 entries, Supplementary Material, Section S2) is
 in one place, `src/instruments/ace14.py`, which Worker 3 (ACE), Worker 4 and
@@ -238,10 +239,11 @@ API keys are read from environment variables (Stages 2-3 also accept
 | `XAI_API_KEY` (or `GROK_API_KEY`) | Grok-4.20 baselines |
 | `FIRE_STATE_SPACE` | optional: state-space path for the knowledge-matched baseline, instead of `--state-space` |
 
-Model-call settings follow Supplementary Material, Section S7: FiRE's GPT-5.1
-calls set no temperature (the API default applies) and set reasoning effort "none";
-the GPT-5.1 baselines omit temperature and use the API's default reasoning
-effort; Gemini 3.1 Pro and Grok-4.20 receive temperature 0. Output limits:
+Model-call settings follow Supplementary Material, Section S7: GPT-5.1 is sent no
+temperature, so the API defaults apply, with reasoning effort "none" for FiRE
+(set explicitly) and for the GPT-5.1 baselines (the API default), so the
+same-model comparison uses identical settings; Gemini 3.1 Pro and Grok-4.20
+receive temperature 0. Output limits:
 2000 tokens for extraction and the Worker 3 item check, 4000 and 300 for
 Worker 2's splitting and matching calls, 400 for the removal confirmation, 16
 for the rescue call.
@@ -257,9 +259,10 @@ export OPENAI_API_KEY=...
 # one individual, notes only
 python3 scripts/run_fire.py notes/patient_01.txt \
     --state-space runs/state_space.json --workdir runs/patient_01
-# one individual, notes plus the self-filled form
+# the same individual, notes plus the self-filled form: reuse the notes-only
+# run above and add only the form step (no new model calls)
 python3 scripts/run_fire.py notes/patient_01.txt --form notes/patient_01_ace_form.json \
-    --state-space runs/state_space.json --workdir runs/patient_01
+    --workdir runs/patient_01 --from reconcile
 # every patient_NN.txt in a folder, one at a time, sharing one state space
 python3 scripts/run_fire.py --batch notes/ [--with-forms] \
     --state-space runs/state_space.json --out-dir runs
@@ -407,7 +410,12 @@ structure-guided and knowledge-matched scripts also take
 (clusters with construct and item; states with their description, actors and
 roles, age window, example phrasings and ACE eligibility; the 69-entry table,
 which must equal `ace14.py`; non-ACE clusters; per-item rules) and drops review
-notes and every reference to where a state was seen in a note.
+notes and every reference to where a state was seen in a note. The paper's
+knowledge-matched prompt used the development state space, whose states carry
+all the fields listed in Section S3, together with per-item rules; neither is
+released. Worker 2 here writes a shorter state (code, name, description, life
+stage, experience type, status), so a state space built with it gives a
+shorter prompt.
 
 The output limits are 8000 tokens for `fire_llm_baseline.py` (plain, notes
 only), 16000 for `fire_llm_baseline_self_form_included.py` (plain, notes plus
@@ -619,9 +627,9 @@ Material, Section S6).
 
 FiRE is assistive decision support for psychotherapists, not a diagnostic
 authority; its output is meant to be checked and corrected by a clinician.
-Total API cost and token counts were not reliably recorded for the paper's
-runs; the running cost estimates the scripts print use placeholder rates and
-should not be reported (Section S7).
+Total API cost and token counts were not recorded for the paper's runs, so
+none is reported (Section S7); the running estimates the scripts print use
+placeholder rates.
 
 ## Citation
 

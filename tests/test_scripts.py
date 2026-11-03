@@ -137,7 +137,7 @@ def test_evaluate_rejects_incomplete_judgements():
     assert "1 of 14 items judged" in proc.stderr
 
 
-def test_parameters_match_supplement_s8():
+def test_parameters_match_supplement_s7():
     """The fixed thresholds and output limits of Supplementary Table
     "Model-call parameters and fixed thresholds" (Section S7)."""
     import importlib

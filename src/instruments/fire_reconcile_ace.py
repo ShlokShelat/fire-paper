@@ -171,8 +171,8 @@ def selftest() -> bool:
             {"state_code": "q-t1", "ace_item": 13, "event": "Family very poor", "source_sentence": "poor at 10",
              "onset_age": 10, "end_age": 10}],
         "excluded_events": [
-            {"reason": "out_of_window", "ace_item": 8, "state_code": "q-n1", "event": "Husband drinks",
-             "source_sentence": "husband drinks, age 30", "onset_age": 30},
+            {"reason": "out_of_window", "ace_item": 8, "state_code": "q-n1", "event": "Father began drinking",
+             "source_sentence": "father began drinking heavily when the client was 25", "onset_age": 25},
             {"reason": "not_ace_relevant", "state_code": "q-d", "event": "Mother died"}],
         "age_unverified": [{"ace_item": 3, "state_code": "q-i3", "event": "Inappropriate touch",
                             "source_sentence": "inappropriate touch"}],

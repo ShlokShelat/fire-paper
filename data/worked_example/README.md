@@ -8,7 +8,7 @@ note text in this repository; the evaluation notes cannot be released.
 
 - `input.txt`: the six-line excerpt with ages, verbatim from the main paper.
 - `expected_mapping.json`: the event, state, cluster and item of each event,
-  verbatim from the main paper's Table I.
+  from the main paper's Table I (event labels slightly fuller).
 - `worker2_output.json`: the same excerpt in the shape `fire_worker2.py`
   writes (one event per note line; every piece carries that line's source
   sentence, its own supporting quote, ages, state code and cluster).
@@ -18,7 +18,7 @@ note text in this repository; the evaluation notes cannot be released.
   `(a + b + c^2) . (e + a^3)`, ACE = 4, items {1, 2, 4, 11}, with the reason
   for each exponent.
 - `figures.tex`: the paper's Figs. 4 and 5 (full trajectory, ACE subgraph),
-  copied from its LaTeX source.
+  taken from its LaTeX source.
 
 ## Running it
 

@@ -189,30 +189,20 @@ def score_from_expression(w3: dict) -> dict:
         if not cluster and sym not in inventory and sym not in alphabet_mapping:
             continue
         det_item = cluster_to_ace_item(cluster)
-        # Items Worker 3 ACE projected this symbol to (already ACE-14). Used only
-        # when the cluster name is unmapped, and never for a cluster the
-        # instrument explicitly excludes (incarceration, caregiver death).
+        # Items Worker 3 ACE projected this symbol to (already ACE-14), used only
+        # to report a disagreement with the fixed table.
         w3_items = [int(i) for i in ((inventory.get(sym, {}) or {}).get("ace_items") or [])
                     if str(i).isdigit() and 1 <= int(i) <= ace14.N_ITEMS]
         if ace14.is_non_ace_cluster(cluster):
             w3_items = []
-        w3_item = w3_items[0] if len(w3_items) == 1 else (w3_items or None)
 
         item = det_item
         if det_item is not None and w3_items and det_item not in w3_items:
             mapping_conflicts.append({
                 "symbol": sym, "cluster": cluster,
                 "deterministic_item": det_item, "worker3_items": w3_items})
-        if item is None and w3_items:
-            if isinstance(w3_item, int):
-                item = w3_item
-            elif isinstance(w3_items, list) and w3_items:
-                item = int(w3_items[0])
-                mapping_conflicts.append({
-                    "symbol": sym, "cluster": cluster,
-                    "deterministic_item": None, "worker3_items": w3_items,
-                    "note": "cluster matched no ACE token; resolved to first hint "
-                            "(multi-item hint — verify construct purity upstream)"})
+        # A cluster the fixed table does not resolve scores nothing and is
+        # reported as unmapped; it is never resolved from another source.
 
         row = {
             "symbol": sym,
@@ -419,7 +409,7 @@ def selftest() -> bool:
           "genuine multi-year span (5-9) is confirmed, no flag raised")
 
     # Dropped items: incarceration and death-of-parent clusters must never
-    # be scored, even if a stale Worker 3 hint still carries old item 10/12.
+    # be scored, even if an ignored hint field carries a different item number.
     w3_dropped = {
         "fire_expression": "[C] m + n",
         "alphabet_mapping": {"m": "Household Incarceration", "n": "Death of Father"},

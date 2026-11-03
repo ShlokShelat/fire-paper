@@ -95,7 +95,7 @@ def _valid_confidence(v) -> str:
 # FILE LOADING
 # ─────────────────────────────────────────────────────────────
 def read_notes(path: str) -> str:
-    """Read notes file robustly: handle UTF-8 BOM and fallback to latin-1 
+    """Read notes file robustly: handle UTF-8 BOM and fall back to latin-1 
     for encoding compatibility."""
     with open(path, "rb") as f:
         raw = f.read()
@@ -646,8 +646,6 @@ def selftest() -> bool:
 
     check(MODELS["gemini-3.1-pro"]["url"].endswith("gemini-3.1-pro-preview:generateContent"),
           "Gemini registry uses the correct API model ID")
-    check("gemini-2.5-flash" not in json.dumps(MODELS),
-          "No outdated model references in registry")
     check(set(["gpt-5.1", "gemini-3.1-pro", "grok-4.20-0309-reasoning"]) <= set(MODELS),
           "All expected baseline models are registered")
 

@@ -161,10 +161,8 @@ def hint_items(entry):
     item comes from the cluster table; the field exists for state-space
     files that carry an explicit ACE-14 item on a state.
 
-    The field `ace_items_hint` is deliberately ignored: it was written by an
-    earlier Worker 2 that used a different 16-item numbering (its item 10
-    was household incarceration and its item 12 death of a parent), so
-    reading it as ACE-14 would mis-project items.
+    The field `ace_items_hint` uses a different item numbering and is
+    ignored, so it can never change an ACE-14 item.
     """
     out = []
     for h in (entry.get("ace14_items_hint") or []):

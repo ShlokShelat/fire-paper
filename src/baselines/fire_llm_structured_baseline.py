@@ -28,9 +28,9 @@ the items part of the output has the same shape as the plain baseline's.
 The output adds `procedure`: the model's events, its check results, and
 whether its present items match the items of its kept events.
 
-Model-call settings: as the plain baseline (GPT-5.1 without temperature
-and with the API's default reasoning effort; Gemini 3.1 Pro and Grok-4.20
-at temperature 0), with the output limit and HTTP timeout raised below
+Model-call settings: as the plain baseline (GPT-5.1 without temperature,
+so the API defaults apply, including reasoning effort "none", the same as
+FiRE; Gemini 3.1 Pro and Grok-4.20 at temperature 0), with the output limit and HTTP timeout raised below
 because the reply is much longer.
 
 DIRECT MODE (notes only):
@@ -152,7 +152,7 @@ def _glossary_block() -> str:
 
 
 def build_user_prompt(notes: str) -> str:
-    """Direct mode: the published baseline's question list and per-item
+    """Direct mode: the plain baseline's question list and per-item
     fields, with FiRE's procedure and the glossary added before the notes."""
     items = "\n".join(f"  ACE-{n}: {q}" for n, q in ACE_QUESTIONS.items())
 
@@ -284,7 +284,7 @@ def normalise_events(raw: dict) -> dict:
 
 
 def normalise(raw: dict, form=None) -> dict:
-    """The published baselines' per-item normalisation, plus the event audit."""
+    """The plain baselines' per-item normalisation, plus the event audit."""
     result = base.normalise_reconcile(raw, form) if form is not None else base.normalise(raw)
     audit = normalise_events(raw)
     if form is None:
@@ -294,7 +294,7 @@ def normalise(raw: dict, form=None) -> dict:
 
 
 def print_report(model_name: str, patient: str, result: dict, form=None):
-    """The published baseline's report, then a short summary of the steps."""
+    """The plain baseline's report, then a short summary of the steps."""
     if form is not None:
         base.print_report_reconcile(model_name, patient, result)
     else:
@@ -366,7 +366,7 @@ _NOTES_RE = re.compile(r"^patient_\d+\.txt$")
 
 def batch_inputs(data_dir: str, with_forms: bool):
     """(notes_path, form_path or None) for every patient_NN.txt in data_dir,
-    the same files the published baselines read."""
+    the same files the plain baselines read."""
     pairs = []
     for p in sorted(glob.glob(os.path.join(data_dir, "patient_*.txt"))):
         if not _NOTES_RE.match(os.path.basename(p)):

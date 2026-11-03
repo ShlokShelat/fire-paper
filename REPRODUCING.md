@@ -33,13 +33,13 @@ notes and its own reference team.
 ## Parameters (Supplementary Table "Model-call parameters and fixed thresholds")
 
 None of these was tuned by a sweep; all were fixed on development data before
-evaluation (S7). `tests/test_scripts.py` checks that the code still holds the
-values below.
+evaluation (S7). `tests/test_scripts.py` checks that the code still holds most
+of the values below.
 
 | Where | Value | In the code |
 |---|---|---|
 | FiRE model calls | GPT-5.1, no temperature, reasoning effort "none" | `build_payload` / `_build_llm_payload` / `_build_rescue_payload` in each stage |
-| Baseline model calls | GPT-5.1 without temperature, default reasoning effort; Gemini and Grok temperature 0 | `src/baselines/fire_llm_baseline*.py` |
+| Baseline model calls | GPT-5.1 without temperature, API default reasoning effort ("none", the same as FiRE); Gemini and Grok temperature 0 | `src/baselines/fire_llm_baseline*.py` |
 | Output limits | extraction 2000; Worker 3 item check 2000; removal confirmation 400; Worker 2 splitting 4000, Judge 300; rescue 16 | `fire_stage2_3_single_model.build_payload`, `fire_worker3_ace._llm_verify_record` / `_llm_adjudicate_drop`, `fire_worker2.call_llm` and its Judge call, `fire_stage5._build_rescue_payload` |
 | Baseline output limits | plain, notes only 8000; plain, notes + form 16000; structure-guided and knowledge-matched 32000 | `MAX_OUTPUT_TOKENS` in the baseline scripts |
 | Stages 2-3 construct check | cosine >= 0.82 (Jaccard >= 0.30 without embeddings); in 0.50-0.82 (Jaccard 0.10-0.30) pass if entailment >= 0.55 | `COSINE_THRESHOLD`, `JACCARD_THRESHOLD`, `NLI_*` in `fire_stage2_3_single_model.py` |
@@ -84,7 +84,7 @@ python3 src/state_space/fire_worker2.py --state-space runs/state_space.json --ap
 ```
 
 If a state is rejected, rerun Worker 2 for the individuals whose pieces mapped
-to it (`--patch-events` lists them). Then score:
+to it (`--patch-events` flags the affected pieces in an events file). Then score:
 
 ```
 python3 scripts/run_fire.py --batch notes/ --state-space runs/state_space.json \

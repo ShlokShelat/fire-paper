@@ -38,7 +38,6 @@ Dropped at projection:
 
 ACE items present: {1, 2, 4, 11}                                      [checked]
 Canonical ACE score = 4                                               [checked]
-Crosses the paper's ACE >= 4 escalation line: yes                     [checked]
 Exponent weights (reference only, never change the count): a = 1 + 3 = 4,
 c = 2                                                                 [checked]
 

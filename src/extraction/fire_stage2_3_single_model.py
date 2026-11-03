@@ -1806,9 +1806,9 @@ def selftest() -> bool:
     check((not p) and f, "actor: genuine agent swap still flagged")
 
     check(full_hallucination_check("Father beat mother", "Father and mother were present.", []),
-          "grounded: unanchored synonym 'beat' now flags")
+          "grounded: unanchored synonym 'beat' is flagged")
     check(full_hallucination_check("Father slapped mother", "Father and mother were present.", []),
-          "grounded: unanchored synonym 'slapped' now flags")
+          "grounded: unanchored synonym 'slapped' is flagged")
     check(not full_hallucination_check("Father beat mother", "Father struck mother.", []),
           "grounded: synonym anchored in source passes")
 

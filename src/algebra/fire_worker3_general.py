@@ -1466,7 +1466,7 @@ def main() -> None:
                              "Default: included, since the paper uses a provisional state "
                              "immediately in the current individual's trajectory.")
     parser.add_argument("--include-new-states", action="store_true",
-                        help="Deprecated no-op: provisional states are included by default.")
+                        help="Has no effect: provisional states are always included.")
     parser.add_argument("--selftest", action="store_true",
                         help="Run regression checks and exit")
     parser.add_argument("--verbose", "-v", action="store_true", help="DEBUG logging")
@@ -1752,7 +1752,7 @@ def generate_interactive_html(result, patient_id, output_path) -> None:
 <html>
 <head>
 <meta charset="utf-8">
-<title>FiRE DFA — @@PID@@</title>
+<title>FiRE trajectory — @@PID@@</title>
 <script>@@VISJS@@</script>
 <style>
   html,body{margin:0;padding:0;height:100%;font-family:Helvetica,Arial,sans-serif;background:#f8fafc;}

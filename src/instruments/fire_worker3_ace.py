@@ -992,7 +992,7 @@ def verify_ace_records(records: list, use_llm: bool = False, api_key: Optional[s
 def selftest() -> bool:
     """Offline regression guard: projects the paper's worked example and
     checks the exact ACE expression, then exercises the window cut at 18,
-    the 16-item-hint guard, per-record removal, and payload construction."""
+    the ignored-hint guard, per-record removal, and payload construction."""
     ok = True
 
     def check(cond, name):
@@ -1039,15 +1039,15 @@ def selftest() -> bool:
     check(any(x["state_code"] == "w2" and x["reason"] == "out_of_window" for x in x_win),
           "an ACE cluster whose span starts after 18 is excluded as out-of-window")
 
-    # Hints in the earlier 16-item numbering are ignored; explicit ACE-14 hints are honoured.
+    # `ace_items_hint` uses a different numbering and is ignored; explicit ACE-14 hints are honoured.
     leg = W3G._mk_record("h1", "Death of Father", 9, 9, "Father died", sub_id="h1")
-    leg["ace_items_hint"] = [12]          # earlier 16-item numbering: 12 = death of a parent
+    leg["ace_items_hint"] = [12]          # different numbering, ignored
     new = W3G._mk_record("h2", "Unnamed Construct", 6, 7, "Peers excluded client", sub_id="h2")
     new["ace14_items_hint"] = [12]        # ACE-14 numbering: 12 = peer rejection
     _, b_h, _, x_h, _, _ = project([leg, new])
     proj = {e["state_code"]: (e["ace_item"], e["ace_item_source"]) for b in b_h for e in b["entries"]}
     check("h1" not in proj and any(x["state_code"] == "h1" for x in x_h),
-          "a 16-item-numbering hint (ace_items_hint) never projects a non-ACE cluster")
+          "an ignored ace_items_hint never projects a non-ACE cluster")
     check(proj.get("h2") == (12, "hint"),
           "an explicit ace14_items_hint resolves an unmapped cluster")
 

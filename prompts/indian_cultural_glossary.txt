@@ -1,0 +1,37 @@
+[Indian clinical glossary of kinship terms and idioms]
+Supplementary Material, Section S4. The table below has the same entries as
+INDIAN_CULTURAL_GLOSSARY in src/extraction/fire_stage2_3_single_model.py,
+which Stage 3 uses to attach cultural notes to events; the extraction
+prompt's system message carries a shorter version of it, and Stages 3-4
+resolve kinship abbreviations (mil, fil, sil, ...) through
+PERSON_ANCHOR_EXPANSIONS. The structure-guided and knowledge-matched
+baselines insert the table, from the "term" line on, into their prompts
+verbatim; keep it unchanged.
+
+term                        meaning
+----                        -------
+kaka                        paternal uncle (father's brother)
+mama                        maternal uncle (mother's brother)
+chacha                      paternal uncle
+maasi                       maternal aunt (mother's sister)
+bua                         paternal aunt (father's sister)
+nani                        maternal grandmother
+dadi                        paternal grandmother
+nana                        maternal grandfather
+dada                        paternal grandfather
+kanyadaan                   ritual of father giving daughter at wedding;
+                             paternal absence at kanyadaan is clinically
+                             significant
+joint family                multi-generational household with shared
+                             authority, limited individual autonomy,
+                             collective decision-making
+came home in a bad state    in Indian clinical notes, frequently implies
+                             intoxication or aggressive behaviour
+boarding school              in Indian family context, often experienced as
+                             abandonment or ejection from family
+mil                         mother-in-law
+fil                         father-in-law
+sil                         sister-in-law or brother-in-law
+pind                        ancestral village
+izzat                       family honour/reputation; threat to izzat is a
+                             major stressor in Indian families

@@ -1,0 +1,22 @@
+# Third-party packages imported by src/ (Python >= 3.10). The paper's runs
+# used Python 3.13.12, torch 2.11.0 and numpy 2.4.4 (Supplementary Material,
+# Section S7); the lower bounds below are the oldest releases with the APIs
+# the code uses.
+#
+# The baseline scripts, the algebra and instrument code, scripts/ and the
+# tests use only the standard library. All model calls are plain HTTPS
+# requests; no vendor SDK is used.
+
+aiohttp>=3.8                  # concurrent model calls in Stages 2-3 and Worker 2
+numpy>=1.24                   # entailment-score softmax in Stages 2-3 (paper: 2.4.4)
+sentence-transformers>=2.2    # all-MiniLM-L6-v2 embeddings and the nli-MiniLM2-L6-H768
+                              # entailment model (Stages 2-5, Worker 2); installs
+                              # torch (paper: 2.11.0). Worker 2 requires it; Stages
+                              # 2-5 fall back to lexical similarity without it. The
+                              # models download from the Hugging Face Hub on first
+                              # use. CPU is enough.
+spacy>=3.0                    # Stage 1 sentence splitting (spacy.blank("en") with the
+                              # rule-based sentencizer; no language model to download)
+
+# Tests (optional): pytest>=7. The test files also run without it:
+#   python3 tests/test_worked_example_chain.py && python3 tests/test_scripts.py

@@ -1,0 +1,68 @@
+[Main paper, Section 'The Worked Example Through FiRE' -- expected pipeline output]
+
+This file gives the expected output of running the worked example through
+Worker 3 (general) -> Worker 3 (ACE) -> Worker 4 (ACE), for use as a
+regression check. tests/test_worked_example_chain.py runs exactly that chain
+on worker2_output.json and asserts every line marked [checked] below.
+
+================================================================================
+ACE-PROJECTED EXPRESSION (main paper, Section V and Fig. 3b)         [checked]
+================================================================================
+
+    (a + b + c^2) . (e + a^3)
+
+    as printed by the implementation:  [C] (a+b+c^2) . (e+a^3)
+    ([C] is the childhood tier marker; ages 0-12 are childhood, so the 12-16
+    period is also [C].)
+
+Symbol assignments:
+    a = q_a = Emotional abuse   -> ACE-1
+    b = q_b = Felt unloved      -> ACE-4
+    c = q_c = Peer bullying     -> ACE-11
+    e = q_e = Physical abuse    -> ACE-2
+
+Why each exponent is what it is:
+    c^2  -- the bullying sub-event's own text says "frequently", explicit
+             repetition language, so the self-loop fires: 1 -> 2. The same
+             word does not raise a or b, although all three come from one
+             note line: repetition is read from each sub-event's own quote.
+    a^3  -- emotional abuse returns at 12-16 after a gap (absent 9-11), the
+             same cluster recurring in a later, disjoint span: one feedback,
+             +2 on the reactivated occurrence: 1 -> 3.
+    b, e -- one occurrence, no repetition language, no reactivation: 1.
+
+Dropped at projection:
+    d (caregiver death, age 11) -- no counterpart among the fourteen items.
+    p (depressive symptoms, 12-16) -- an outcome, not an adverse experience.
+    adult betrayals, low mood, insomnia -- non-ACE clusters, outside 0-18.
+
+ACE items present: {1, 2, 4, 11}                                      [checked]
+Canonical ACE score = 4                                               [checked]
+Exponent weights (reference only, never change the count): a = 1 + 3 = 4,
+c = 2                                                                 [checked]
+
+================================================================================
+FULL TRAJECTORY (before projection, main paper Fig. 3a)               [checked]
+================================================================================
+
+    [C] (a+b+c^2) . d . (e+a^3+f) . [A] g . g^3 . (h+i^2)
+
+The implementation assigns symbols in order of first onset, so its letters
+for the non-ACE clusters differ from the paper's labels:
+
+    implementation   paper   cluster
+    d                d       Caregiver death
+    f                p       Depressive symptoms
+    g                f       Betrayal (q_f1 at 22-24, q_f2 at 35-37)
+    h                g       Depression (low mood)
+    i                h       Sleep (insomnia)
+
+Structure (the same transitions as Fig. 3a):
+    - union of {a, b, c^2} (ages 0-8), then d (age 11);
+    - union of {e, a^3, p} (ages 12-16), a^3 being the feedback reactivation;
+    - betrayal, then betrayal again after a gap: one cluster, two distinct
+      states (q_f1, q_f2), linked by feedback, so the second carries ^3;
+    - final union of low mood and insomnia (40-42). Insomnia carries ^2
+      because the note says "chronic insomnia" and the self-loop fires on
+      repetition or chronicity language ("chronic" is in REPETITION_LANGUAGE,
+      src/algebra/fire_worker3_general.py; Supplementary Material, S1).

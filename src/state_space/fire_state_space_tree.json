@@ -1,0 +1,26 @@
+{
+  "_note": "Schema only. The state space used in the paper was built from development data (notes from individuals disjoint from the 40 evaluation individuals) and is not released. Worker 2 reads and writes this structure; a new state is written with the fields below. See Supplementary Material, Section S3.",
+  "_schema_documented_at": "Supplementary Material, Section S3 (State Space)",
+  "domains": {
+    "example_domain_key": {
+      "domain_name": "string",
+      "domain_definition": "string",
+      "clusters": {
+        "example_cluster_key": {
+          "cluster_name": "string",
+          "cluster_definition": "string",
+          "states": [
+            {
+              "code": "string",
+              "name": "string",
+              "description": "string",
+              "lifecycle_tier": "string",
+              "experience_type": "string",
+              "state_status": "provisional | permanent"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

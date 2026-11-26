@@ -8,7 +8,7 @@
     {"event": "Beaten by father", "age": "12-16", "state": "q_e", "cluster_symbol": "e", "cluster_name": "Physical abuse", "ace_item": "ACE-2"},
     {"event": "Depressed mood, overeating", "age": "12-16", "state": "q_p", "cluster_symbol": "p", "cluster_name": "Depressive symptoms", "ace_item": "non-ACE"},
     {"event": "Friend took money", "age": "22-24", "state": "q_f1", "cluster_symbol": "f", "cluster_name": "Betrayal", "ace_item": "non-ACE"},
-    {"event": "Husband's affair", "age": "35-37", "state": "q_f2", "cluster_symbol": "f", "cluster_name": "Betrayal", "ace_item": "non-ACE"},
+    {"event": "Spouse's affair", "age": "35-37", "state": "q_f2", "cluster_symbol": "f", "cluster_name": "Betrayal", "ace_item": "non-ACE"},
     {"event": "Low mood", "age": "40-42", "state": "q_g", "cluster_symbol": "g", "cluster_name": "Depression", "ace_item": "non-ACE"},
     {"event": "Chronic insomnia", "age": "40-42", "state": "q_h", "cluster_symbol": "h", "cluster_name": "Sleep", "ace_item": "non-ACE"}
   ],

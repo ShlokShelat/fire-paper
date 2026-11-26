@@ -103,7 +103,7 @@
       "unit_id": "worked_example_L3",
       "line_number": 3,
       "life_stage": "Teenage",
-      "source_sentence": "Age 12 to 16: father beat and pinched her, with continuing emotional abuse; depressed mood and overeating.",
+      "source_sentence": "Age 12 to 16: father beat and pinched the client, with continuing emotional abuse; depressed mood and overeating.",
       "status": "COMPOUND",
       "sub_events": [
         {
@@ -114,7 +114,7 @@
           "onset_age": 12,
           "end_age": 16,
           "is_ongoing": false,
-          "supporting_quote": "father beat and pinched her",
+          "supporting_quote": "father beat and pinched the client",
           "quote_grounded": true,
           "state_code": "q-e",
           "cluster_name": "Physical Abuse",
@@ -168,7 +168,7 @@
       "unit_id": "worked_example_L4",
       "line_number": 4,
       "life_stage": "Adult",
-      "source_sentence": "Age 22 to 24: a trusted friend took the client's money and left, her first major betrayal.",
+      "source_sentence": "Age 22 to 24: a trusted friend took the client's money and left, the client's first major betrayal.",
       "status": "COMPOUND",
       "sub_events": [
         {
@@ -199,18 +199,18 @@
       "unit_id": "worked_example_L5",
       "line_number": 5,
       "life_stage": "Adult",
-      "source_sentence": "Age 35 to 37: the client discovered her husband's affair.",
+      "source_sentence": "Age 35 to 37: the client discovered their spouse's affair.",
       "status": "COMPOUND",
       "sub_events": [
         {
           "sub_id": "q-f2",
-          "event": "Client discovered husband's affair",
+          "event": "Client discovered spouse's affair",
           "experience_type": "event",
           "status": "MAPPED",
           "onset_age": 35,
           "end_age": 37,
           "is_ongoing": false,
-          "supporting_quote": "the client discovered her husband's affair",
+          "supporting_quote": "the client discovered their spouse's affair",
           "quote_grounded": true,
           "state_code": "q-f2",
           "cluster_name": "Betrayal",
